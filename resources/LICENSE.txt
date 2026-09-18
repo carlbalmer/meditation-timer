@@ -1,1 +1,12 @@
-Sound-Bowl-head-right--G#3.wav by Cpt_Asteroid -- https://freesound.org/s/138671/ -- License: Attribution NonCommercial 4.0
+The bundled meditation sounds are recordings by Cpt_Asteroid, released under
+the Creative Commons Attribution-NonCommercial 4.0 International license
+(CC BY-NC 4.0):
+
+- Sound-Bowl-foot-left--B2.wav — https://freesound.org/s/138666/
+- Sound-Bowl-belly--A2.wav — https://freesound.org/s/138667/
+- Sound-Bowl-head-top--A3.wav — https://freesound.org/s/138670/
+- Sound-Bowl-heart--C#2.wav — https://freesound.org/s/138675/
+- Zimbel--D#5.wav — https://freesound.org/s/138676/
+
+The license permits sharing and remixing when the author is credited. It does
+not permit commercial use. License text: https://creativecommons.org/licenses/by-nc/4.0/
