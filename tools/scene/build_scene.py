@@ -435,6 +435,9 @@ def mat_pebbles(name='PebbleBed'):
     # dry gravel banks: lower contrast and a bit darker so they stay calm behind the UI
     dry = nt.smooth(wd, 0.0, -0.15)
     col = nt.mix(nt.mul(dry, 0.72), col, (0.075, 0.07, 0.06), 'MIX')
+    col = nt.mix(dry, col, nt.mix(1.0, col, (0.7, 0.7, 0.7), 'MULTIPLY'), 'MIX')
+    ao = nt.node('ShaderNodeAmbientOcclusion', {'Distance': 0.8}, samples=4)
+    col = nt.mix(nt.mul(dry, nt.sub(1.0, ao.outputs['AO'])), col, nt.mix(1.0, col, (0.35, 0.35, 0.35), 'MULTIPLY'), 'MIX')
     z = nt.sep(co)[2]
     # animated caustics (periodic), only below the water line
     ph = nt.group(phase_group('PhaseWF')).outputs[0]
@@ -466,7 +469,7 @@ def shader_group_from_material(mat, gname):
         c = g.nodes.new(n.bl_idname)
         for attr in ('operation', 'use_clamp', 'blend_type', 'data_type', 'clamp_result', 'noise_dimensions', 'noise_type',
                      'voronoi_dimensions', 'feature', 'distance', 'projection', 'projection_blend', 'interpolation', 'image',
-                     'interpolation_type', 'clamp', 'space', 'node_tree', 'attribute_name', 'attribute_type'):
+                     'interpolation_type', 'clamp', 'space', 'node_tree', 'attribute_name', 'attribute_type', 'samples', 'inside', 'only_local'):
             if hasattr(n, attr):
                 try:
                     setattr(c, attr, getattr(n, attr))
@@ -721,13 +724,13 @@ def mat_distant(name, base, haze=(0.62, 0.72, 0.86), haze_dist=4000.0, emission=
 def mat_lake():
     m, nt = new_material('Lake')
     cam = nt.node('ShaderNodeCameraData')
-    fac = nt.mul(nt.sub(1.0, nt.math('EXPONENT', nt.mul(cam.outputs['View Distance'], -1.0 / 9000.0))), 0.85)
+    fac = nt.mul(nt.sub(1.0, nt.math('EXPONENT', nt.mul(cam.outputs['View Distance'], -1.0 / 9000.0))), 0.5)
     co = nt.coords('Object')
     # wind streaks / shimmer: long horizontal bands of slightly different ripple
     sh = nt.noise(nt.vmath('MULTIPLY', co, (0.0008, 0.012, 0.0)), scale=1.0, detail=3)
     rip = nt.noise(nt.vmath('MULTIPLY', co, (0.05, 0.4, 0.0)), scale=1.0, detail=2)
-    bump = nt.node('ShaderNodeBump', {'Height': nt.mul(rip, sh), 'Strength': 0.25, 'Distance': 1.0})
-    w = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': (0.015, 0.035, 0.045), 'Roughness': nt.maprange(sh, 0.3, 0.7, 0.02, 0.12),
+    bump = nt.node('ShaderNodeBump', {'Height': nt.mul(rip, sh), 'Strength': 0.04, 'Distance': 1.0})
+    w = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': (0.015, 0.035, 0.045), 'Roughness': nt.maprange(sh, 0.3, 0.7, 0.008, 0.05),
                                            'IOR': 1.33, 'Normal': bump.outputs[0]})
     em = nt.node('ShaderNodeEmission', {'Color': (0.45, 0.58, 0.80), 'Strength': 0.9})
     mx = nt.node('ShaderNodeMixShader'); nt.set(mx.inputs[0], fac); nt.link(w, mx.inputs[1]); nt.link(em, mx.inputs[2])
@@ -1273,7 +1276,7 @@ def main():
     for y in vy:
         for x in vx:
             t = (-40 - y) / 1800.0
-            z = -15 - 230 * min(1.0, t * 2.0) ** 0.7 + 40 * fbm(x * 0.004, y * 0.004, 1.0, 4) + 0.0004 * abs(x) ** 1.6
+            z = -15 - 270 * min(1.0, t * 2.0) ** 0.7 + 40 * fbm(x * 0.004, y * 0.004, 1.0, 4) * (1 - min(1.0, t * 2.0)) + 0.0004 * abs(x) ** 1.6
             verts.append((x, y, z))
     vo = mesh_from_grid('Valley', verts, len(vx), len(vy)); vo.data.materials.append(m_far_forest)
     bpy.ops.mesh.primitive_plane_add(size=1, location=(0, -6000, -240))
@@ -1283,11 +1286,26 @@ def main():
     for y in my:
         for x in mx:
             ridge = 1 - abs(noise.noise(Vector((x * 0.00018, y * 0.00025, 2.0))))
-            peak = 1500 * ridge ** 2.2 + 300 * fbm(x * 0.0012, y * 0.0012, 4.0, 5) + 60 * fbm(x * 0.006, y * 0.006, 5.0, 3)
+            peak = 900 * ridge ** 2.2 + 220 * fbm(x * 0.0012, y * 0.0012, 4.0, 5) + 60 * fbm(x * 0.006, y * 0.006, 5.0, 3)
             z = -260 + peak * smoothstep(-7000, -9000, y)
             verts.append((x, y, z))
     mo = mesh_from_grid('Mountains', verts, len(mx), len(my)); mo.data.materials.append(m_mtn)
     adaptive(mo, 3.0, 4)
+    # the focal peak: four-faced pyramid with eroded ridges, framed by the arch
+    PX, PY, PZ = 620.0, -9200.0, 1650.0
+    px = [PX - 2600 + 25 * i for i in range(209)]; py = [PY + 1800 - 25 * j for j in range(145)]
+    verts = []
+    for y in py:
+        for x in px:
+            dx, dy = x - PX, y - PY
+            ang = math.atan2(dy, dx)
+            r = math.hypot(dx, dy)
+            facet = 1.0 + 0.18 * math.cos(4 * ang + 0.5)          # four faces / ridges
+            z = PZ - r * 1.05 / facet + 70 * fbm(x * 0.004, y * 0.004, 11.0, 4) * min(1.0, r / 300)
+            z -= 40 * abs(noise.noise(Vector((x * 0.008, y * 0.008, 3.0))))   # gullies
+            verts.append((x, y, max(-300.0, z)))
+    m_peak = mat_distant('PeakMat', (0.085, 0.095, 0.115), haze=(0.40, 0.52, 0.75), haze_dist=48000.0, emission=0.9, forest_top=450.0)
+    pk = mesh_from_grid('Peak', verts, len(px), len(py)); pk.data.materials.append(m_peak)
     # second, paler ridge further back
     mx = [-20000 + 250 * i for i in range(161)]; my = [-15000 - 250 * j for j in range(40)]
     verts = []
