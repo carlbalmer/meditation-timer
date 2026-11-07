@@ -27,4 +27,5 @@ function media(): Plugin {
   };
 }
 
-export default defineConfig({ base: '/meditation-timer/', plugins: [media()] });
+// Preview is reached through `tailscale serve` on the tailnet (bound to 127.0.0.1 only).
+export default defineConfig({ base: '/meditation-timer/', plugins: [media()], preview: { allowedHosts: ['.ts.net'] } });
