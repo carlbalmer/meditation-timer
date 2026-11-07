@@ -187,7 +187,11 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       else location.reload();
     });
     const applyUpdate = () => registration.waiting?.postMessage({ activate: true });
-    const applyUpdateWhenHidden = () => document.visibilityState === 'hidden' && !busy() && applyUpdate();
+    const applyUpdateWhenHidden = () => {
+      if (document.visibilityState !== 'hidden' || busy()) return;
+      if (reloadPending) location.reload();
+      else applyUpdate();
+    };
     applyUpdate();
     registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', applyUpdateWhenHidden));
     document.addEventListener('visibilitychange', applyUpdateWhenHidden);

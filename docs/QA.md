@@ -70,7 +70,13 @@ The app was back on the setup screen after waking. The audio clock ran 1.05 s be
 over the 21.5 min (≈0.08 %), so the closing gong sounds about a second after the countdown's
 wall-clock end: harmless, noted.
 
+## Final assets on the phone (installed app)
+- Real camera-turn clip bridge→waterfall played in full (screen recording); controls stayed put.
+- Under reduced motion (the phone's setting) scenes crossfade instead, as designed.
+- Update after a deploy: the new worker activated while the app was in the background; a reload
+  left pending by a busy moment now happens the next time the idle app is hidden, instead of
+  ~20 s after reopening.
+
 ## Not yet verified
-- Real camera-turn clips and the bridge loop (not delivered yet; tested with generated clips).
 - Real tilt on the phone (Vanadium blocks motion sensors by default; synthetic events only).
 - A 20-minute session.
