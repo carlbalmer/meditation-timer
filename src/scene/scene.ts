@@ -10,7 +10,10 @@ type View = {
   depth: Promise<HTMLImageElement | null>;
 };
 
-const FPS = { setup: 30, session: 15 };
+// Measured on the Pixel 6a: each composited frame costs ~1.5% of a core, and
+// the atmosphere moves a few px/s, so a low frame rate looks the same.
+const FPS = { setup: 12, session: 8, tilting: 24 };
+const PARALLAX_DPR = 2;
 const FADE_MS = 700;
 
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -55,7 +58,7 @@ export class Scene {
   private parallaxOffAt = 0;
   private tilt = { x: 0, y: 0, tx: 0, ty: 0, live: false };
   private baseline: { beta: number; gamma: number } | null = null;
-  private raf = 0;
+  private scheduled = false;
   private last = 0;
 
   constructor(private root: HTMLElement) {
@@ -238,21 +241,28 @@ export class Scene {
   private resize() {
     const { clientWidth: w, clientHeight: h } = this.root;
     this.effects.resize(w, h);
-    this.parallaxCanvas.width = Math.round(w * devicePixelRatio);
-    this.parallaxCanvas.height = Math.round(h * devicePixelRatio);
+    const dpr = Math.min(devicePixelRatio, PARALLAX_DPR);
+    this.parallaxCanvas.width = Math.round(w * dpr);
+    this.parallaxCanvas.height = Math.round(h * dpr);
   }
 
+  // Paced by a timer rather than a per-vsync rAF loop: every rAF tick costs a
+  // full composite, which on the phone was most of the screen's CPU budget.
   private loop() {
-    if (!this.raf && this.visible) this.raf = requestAnimationFrame(this.frame);
+    if (this.scheduled || !this.visible) return;
+    this.scheduled = true;
+    const t = this.tilt;
+    const tilting = this.parallaxCanvas.classList.contains('on') && Math.abs(t.tx - t.x) + Math.abs(t.ty - t.y) > 0.02;
+    const wait = Math.max(0, this.last + 1000 / FPS[tilting ? 'tilting' : this.density] - performance.now());
+    setTimeout(() => requestAnimationFrame(this.frame), wait);
   }
 
   private frame = (now: number) => {
-    this.raf = 0;
+    this.scheduled = false;
     if (!this.visible) return;
-    this.loop();
-    if (now - this.last < 1000 / FPS[this.density] - 4) return;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
+    this.loop();
     this.effects.draw(now / 1000, dt);
     const on = this.parallaxCanvas.classList.contains('on');
     if (this.parallax && (on || now < this.parallaxOffAt)) {

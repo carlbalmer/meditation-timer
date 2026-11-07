@@ -97,7 +97,7 @@ export class Parallax {
     const cover = Math.max(canvas.width / width, canvas.height / height);
     const scaleX = canvas.width / (width * cover);
     const scaleY = canvas.height / (height * cover);
-    const px = 2 * MAX_SHIFT_PX * devicePixelRatio;
+    const px = (2 * MAX_SHIFT_PX * canvas.width) / canvas.clientWidth;
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.uniform2f(this.scale, scaleX, scaleY);
     gl.uniform2f(this.shift, (tiltX * px * scaleX) / canvas.width, (tiltY * px * scaleY) / canvas.height);

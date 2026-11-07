@@ -140,7 +140,8 @@ def floor_z(x, y):
     # pool basin
     r = math.sqrt(((x - 1.0) / 4.4) ** 2 + ((y - 5.3) / 5.6) ** 2)
     if r < 1.25:
-        pz = -0.15 - 1.3 * math.sqrt(max(0.0, 1 - min(r, 1.0) ** 2)) + 0.5 * max(0.0, r - 0.95)
+        rd = math.sqrt(((x - 0.4) / 3.4) ** 2 + ((y - 3.0) / 3.7) ** 2)
+        pz = -0.12 - 0.25 * math.sqrt(max(0.0, 1 - min(r, 1.0) ** 2)) - 1.45 * max(0.0, 1 - rd * rd) ** 0.8 + 0.5 * max(0.0, r - 0.95)
         pz += 0.04 * fbm(x * 1.5, y * 1.5, 3.3, 3)
         z = min(z, pz)
     # downstream channel
@@ -165,12 +166,28 @@ def floor_z(x, y):
     return z
 
 
+def water_level(x, y):
+    lv = -1e3
+    r = math.sqrt(((x - 1.0) / 4.4) ** 2 + ((y - 5.3) / 5.6) ** 2)
+    if r < 1.3 and y > -0.6:
+        lv = 0.0
+    if y < 0.6 and abs(x - stream_x(y)) < 6.0:
+        sl = stream_bed(y) + 0.13
+        if y > -0.5:
+            sl = min(sl, -0.01)
+        lv = max(lv, sl)
+    return lv
+
+
 def build_floor():
     xs = [-15 + 0.2 * i for i in range(151)]
     ys = [-46 + 0.2 * j for j in range(311)]
     verts = [(x, y, floor_z(x, y)) for y in ys for x in xs]
     uvs = [(x, y) for y in ys for x in xs]
     ob = mesh_from_grid('Floor', verts, len(xs), len(ys), uvs)
+    wd = [max(-1.0, min(3.0, water_level(x, y) - z)) for (x, y, z) in verts]
+    at = ob.data.attributes.new('wdepth', 'FLOAT', 'POINT')
+    at.data.foreach_set('value', wd)
     return ob
 
 # ---------------------------------------------------------------- walls
@@ -295,20 +312,28 @@ def mat_gneiss(name='Gneiss', moss_region=True, wet_falls=True, bands_scale=1.0)
     co = nt.coords('Object')
     # gneiss foliation: warped scalar field t along a steep fold normal
     nfol = Vector((0.88, 0.28, 0.38)).normalized()
-    warp1 = nt.noise(co, scale=0.09, detail=2, rough=0.5)
-    warp2 = nt.noise(co, scale=0.45, detail=3, rough=0.55)
+    warp1 = nt.noise(co, scale=0.09, detail=2, rough=0.5, distortion=1.2)
+    warp2 = nt.noise(co, scale=0.45, detail=3, rough=0.55, distortion=0.6)
+    warp3 = nt.noise(co, scale=0.2, detail=2, rough=0.5)
     t = nt.vmath('DOT_PRODUCT', co, tuple(nfol))
-    t = nt.add(t, nt.mul(warp1, 5.0 * bands_scale))
+    t = nt.add(t, nt.mul(warp1, 2.8 * bands_scale))
     t = nt.add(t, nt.mul(warp2, 0.9))
-    bands = nt.noise(None, scale=1.0, detail=4, rough=0.65, w=nt.mul(t, 2.2), dims='1D')
-    fine = nt.noise(None, scale=1.0, detail=3, rough=0.6, w=nt.mul(t, 34.0), dims='1D')
+    t = nt.add(t, nt.mul(nt.mul(warp3, warp3), 3.0))
+    fq = nt.maprange(nt.noise(co, scale=0.07, detail=1), 0.35, 0.65, 1.0, 4.0)
+    bands = nt.noise(None, scale=1.0, detail=4, rough=0.65, w=nt.mul(t, fq), dims='1D')
+    fine = nt.noise(None, scale=1.0, detail=3, rough=0.6, w=nt.mul(t, nt.mul(fq, 12.0)), dims='1D')
     lam = nt.add(nt.mul(bands, 0.72), nt.mul(fine, 0.28))
+    contrast = nt.maprange(nt.noise(co, scale=0.11, detail=2), 0.3, 0.7, 0.3, 1.15)
+    lam = nt.madd(nt.sub(lam, 0.5), contrast, 0.5)
     col = nt.ramp(lam, [(0.36, (0.040, 0.037, 0.034)), (0.43, (0.085, 0.077, 0.068)), (0.50, (0.15, 0.137, 0.12)),
                         (0.555, (0.21, 0.195, 0.17)), (0.60, (0.33, 0.315, 0.28)), (0.655, (0.50, 0.48, 0.43))], interp='EASE')
     # micro texture from scanned rock (luminance only)
     det = nt.image(tex('lichen_rock', '_diff_'), nt.vmath('SCALE', co, scale=0.45), proj='BOX', blend=0.3)
     det_l = nt.node('ShaderNodeRGBToBW', {'Color': det}).outputs[0]
-    col = nt.mix(0.55, col, nt.mix(1.0, col, nt.maprange(det_l, 0.0, 0.5, 0.6, 1.5), 'MULTIPLY'), 'MIX')
+    col = nt.mix(0.75, col, nt.mix(1.0, col, nt.maprange(det_l, 0.0, 0.5, 0.55, 1.6), 'MULTIPLY'), 'MIX')
+    patch = nt.noise(co, scale=0.35, detail=3, rough=0.6)
+    col = nt.mix(nt.smooth(patch, 0.45, 0.65), col, nt.mix(1.0, col, (1.2, 1.05, 0.85), 'MULTIPLY'), 'MIX')
+    col = nt.mix(nt.mul(nt.smooth(patch, 0.5, 0.3), 0.6), col, nt.mix(1.0, col, (0.8, 0.82, 0.85), 'MULTIPLY'), 'MIX')
     # ochre / rust streaks (iron staining) following some bands and running down
     rust_n = nt.noise(nt.vmath('MULTIPLY', co, (0.6, 0.6, 0.12)), scale=1.0, detail=4, rough=0.6)
     rust_m = nt.math('MULTIPLY', nt.smooth(rust_n, 0.58, 0.72), nt.smooth(bands, 0.45, 0.6))
@@ -320,10 +345,11 @@ def mat_gneiss(name='Gneiss', moss_region=True, wet_falls=True, bands_scale=1.0)
     if wet_falls:
         sx = nt.sep(co)
         dfx = nt.math('ABSOLUTE', nt.sub(sx[0], FX))
-        near = nt.smooth(nt.add(dfx, nt.mul(nt.math('ABSOLUTE', nt.sub(sx[1], 10.6)), 0.6)), 2.6, 0.6)
+        near = nt.smooth(nt.add(dfx, nt.mul(nt.math('ABSOLUTE', nt.sub(sx[1], 10.6)), 0.6)), 3.4, 0.8)
         near = nt.mul(near, nt.smooth(sx[2], 10.0, 6.0))
         wet = nt.math('MAXIMUM', wet, near)
-    col = nt.mix(nt.mul(wet, 0.45), col, nt.mix(1.0, col, (0.4, 0.4, 0.4), 'MULTIPLY'), 'MIX')
+    wet = nt.math('MAXIMUM', wet, nt.mul(nt.smooth(nt.sep(co)[2], 1.4, 0.1), 0.9))
+    col = nt.mix(nt.mul(wet, 0.7), col, nt.mix(1.0, col, (0.32, 0.32, 0.31), 'MULTIPLY'), 'MIX')
     rough_img = nt.image(tex('lichen_rock', '_rough_'), nt.vmath('SCALE', co, scale=0.45), 'Non-Color', 'BOX', 0.3)
     rough = nt.maprange(nt.sep(rough_img)[0] if False else nt.node('ShaderNodeRGBToBW', {'Color': rough_img}).outputs[0], 0, 1, 0.45, 0.85)
     rough = nt.mix(wet, rough, 0.18, dtype='FLOAT')
@@ -350,7 +376,7 @@ def mat_gneiss(name='Gneiss', moss_region=True, wet_falls=True, bands_scale=1.0)
     # displacement: protruding pale bands, rounded micro relief, moss cushions
     disp_img = nt.image(tex('lichen_rock', '_disp_'), nt.vmath('SCALE', co, scale=0.45), 'Non-Color', 'BOX', 0.3)
     disp_l = nt.node('ShaderNodeRGBToBW', {'Color': disp_img}).outputs[0]
-    h = nt.add(nt.mul(bands, 0.025), nt.mul(disp_l, 0.06))
+    h = nt.add(nt.mul(bands, 0.008), nt.mul(disp_l, 0.06))
     h = nt.add(h, nt.mul(nt.noise(co, scale=2.5, detail=3), 0.03))
     cush = nt.voronoi(co, scale=9.0, feature='SMOOTH_F1', out='Distance')
     h = nt.add(h, nt.mul(moss_m, nt.maprange(cush, 0.0, 0.6, 0.05, 0.0)))
@@ -397,22 +423,29 @@ def mat_pebbles(name='PebbleBed'):
     mixf = nt.smooth(nt.noise(co, scale=0.25, detail=2), 0.45, 0.6)
     col = nt.mix(mixf, diff, grey, 'MIX')
     col = nt.mix(1.0, col, (1.05, 0.9, 0.62), 'MULTIPLY')   # golden-brown under water
-    # algae darkening deeper in the pool
+    # water depth from the floor attribute: algae + Beer-Lambert absorption (down and back up)
+    wd = nt.math('MAXIMUM', nt.node('ShaderNodeAttribute', attribute_name='wdepth', attribute_type='GEOMETRY').outputs['Fac'], 0.0)
+    col = nt.mix(nt.smooth(wd, 0.2, 0.9), col, nt.mix(1.0, col, (0.55, 0.62, 0.45), 'MULTIPLY'), 'MIX')
+    tr = nt.node('ShaderNodeCombineXYZ')
+    for i, k in enumerate((2.6, 1.15, 1.35)):
+        nt.set(tr.inputs[i], nt.math('EXPONENT', nt.mul(wd, -2.0 * k)))
+    teal = nt.node('ShaderNodeVectorMath', operation='MULTIPLY')
+    nt.set(teal.inputs[0], nt.vmath('SUBTRACT', (1.0, 1.0, 1.0), tr.outputs[0])); teal.inputs[1].default_value = (0.006, 0.020, 0.019)
+    col = nt.vmath('ADD', nt.vmath('MULTIPLY', col, tr.outputs[0]), teal.outputs['Vector'])
     z = nt.sep(co)[2]
-    deep = nt.smooth(z, -0.2, -0.9)
-    col = nt.mix(nt.mul(deep, 0.35), col, (0.08, 0.10, 0.05), 'MIX')
-    col = nt.mix(nt.smooth(z, 0.0, -0.5), col, nt.mix(1.0, col, (0.6, 0.78, 0.68), 'MULTIPLY'), 'MIX')
     # animated caustics (periodic), only below the water line
     ph = nt.group(phase_group('PhaseWF')).outputs[0]
     cn = loop_noise(nt, nt.vmath('SCALE', co, scale=1.0), ph, radius=0.6, cycles=2, scale=2.2, detail=1.0, rough=0.4, seed=3.0)
     ridge = nt.math('POWER', nt.sub(1.0, nt.math('ABSOLUTE', nt.mul(nt.sub(cn, 0.5), 2.0))), 6.0)
-    underwater = nt.smooth(z, -0.03, -0.12)
-    caust = nt.mul(nt.mul(ridge, underwater), 1.2)
+    underwater = nt.smooth(wd, 0.02, 0.1)
+    caust = nt.mul(nt.mul(ridge, nt.mul(underwater, nt.smooth(wd, 0.7, 0.25))), 1.2)
     col = nt.mix(1.0, col, nt.add(1.0, caust) if False else nt.comb(nt.add(1.0, caust), nt.add(1.0, caust), nt.add(1.0, nt.mul(caust, 0.85))), 'MULTIPLY')
     wetrough = nt.mix(underwater, 0.75, 0.35, dtype='FLOAT')
     bsdf = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': col, 'Roughness': wetrough})
     dimg = nt.image(tex('dry_river_pebbles', '_disp_'), vec, 'Non-Color', 'BOX', 0.2)
-    disp = nt.node('ShaderNodeDisplacement', {'Height': nt.node('ShaderNodeRGBToBW', {'Color': dimg}).outputs[0], 'Midlevel': 0.5, 'Scale': 0.06}, space='OBJECT')
+    flat = nt.smooth(wd, 0.75, 0.2)     # deep parts: smooth silty bottom
+    hgt = nt.add(nt.mul(nt.sub(nt.node('ShaderNodeRGBToBW', {'Color': dimg}).outputs[0], 0.5), flat), 0.5)
+    disp = nt.node('ShaderNodeDisplacement', {'Height': hgt, 'Midlevel': 0.5, 'Scale': 0.06}, space='OBJECT')
     output(nt, bsdf, displacement=disp)
     return m
 
@@ -430,7 +463,7 @@ def shader_group_from_material(mat, gname):
         c = g.nodes.new(n.bl_idname)
         for attr in ('operation', 'use_clamp', 'blend_type', 'data_type', 'clamp_result', 'noise_dimensions', 'noise_type',
                      'voronoi_dimensions', 'feature', 'distance', 'projection', 'projection_blend', 'interpolation', 'image',
-                     'interpolation_type', 'clamp', 'space', 'node_tree'):
+                     'interpolation_type', 'clamp', 'space', 'node_tree', 'attribute_name', 'attribute_type'):
             if hasattr(n, attr):
                 try:
                     setattr(c, attr, getattr(n, attr))
@@ -516,7 +549,7 @@ def mat_water(name, phase_name, flow=False):
         ringf = nt.mul(ring.outputs['Fac'], nt.smooth(dist, 7.0, 1.0))
         h = nt.add(nt.add(nt.mul(n1, 0.55), nt.mul(n2, 0.25)), nt.mul(ringf, 0.25))
         # calmer far from the falls (lower part of the frame)
-        h = nt.mul(h, nt.maprange(dist, 1.5, 8.0, 1.0, 0.6))
+        h = nt.mul(h, nt.maprange(dist, 1.5, 8.0, 1.0, 0.45))
         bump_strength = 0.35
     bump = nt.node('ShaderNodeBump', {'Height': h, 'Strength': bump_strength, 'Distance': 0.02})
     glass = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': (0.86, 0.95, 0.93), 'Roughness': 0.03, 'IOR': 1.333,
@@ -529,7 +562,7 @@ def mat_water(name, phase_name, flow=False):
     else:
         dist = nt.vmath('DISTANCE', co, (FX - 0.1, 9.9, 0.0))
         fn = loop_noise(nt, nt.vmath('SCALE', co, scale=1.0), ph, radius=0.6, cycles=4, scale=3.0, detail=5, rough=0.6, seed=21.0)
-        foam = nt.mul(nt.smooth(dist, 2.4, 0.4), nt.smooth(fn, 0.38, 0.62))
+        foam = nt.mul(nt.smooth(dist, 3.0, 0.5), nt.smooth(fn, 0.33, 0.6))
     foam_bsdf = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': (0.9, 0.93, 0.95), 'Roughness': 0.35, 'Subsurface Weight': 0.0})
     surf = nt.node('ShaderNodeMixShader'); nt.set(surf.inputs[0], nt.mul(foam, 0.9)); nt.link(glass, surf.inputs[1]); nt.link(foam_bsdf, surf.inputs[2])
     # transparent for shadow rays so the bed is lit (fake caustics are in the bed shader)
@@ -554,13 +587,29 @@ def mat_falls(name, layer=0):
         edge = nt.smooth(uc, 1.0, nt.maprange(v, 0.0, 1.0, 0.45, 0.2))
         thr = nt.maprange(v, 0.0, 1.0, 0.36, 0.46)
         cov = nt.mul(nt.smooth(dens, thr, nt.add(thr, 0.12)), edge)
-        white = nt.maprange(v, 0.0, 0.4, 0.6, 1.0)
+        # split into two streams over the upper part, meandering gap
+        gc = nt.add(0.5, nt.mul(nt.math('SINE', nt.mul(v, 9.0)), 0.06))
+        gap = nt.mul(nt.smooth(nt.math('ABSOLUTE', nt.sub(u, gc)), 0.11, 0.03), nt.smooth(v, 0.55, 0.2))
+        cov = nt.mul(cov, nt.sub(1.0, gap))
+        # ragged, broken lip
+        lipn = nt.noise(nt.comb(nt.mul(u, 9.0), 0.0, 3.0), scale=1.0, detail=3)
+        cov = nt.mul(cov, nt.smooth(v, nt.mul(lipn, 0.05), nt.add(nt.mul(lipn, 0.05), 0.025)))
+        white = nt.maprange(dens, 0.35, 0.6, 0.75, 1.0)
+    elif layer == 2:
+        # thin aerated water skipping over the rock on both sides of the main sheet
+        a = scroll_noise(nt, u, v, ph, speed_cycles=5, v_period=1.0, radius=1.6, u_scale=18.0, detail=5, rough=0.65, seed=13.0)
+        b = scroll_noise(nt, u, v, ph, speed_cycles=11, v_period=0.5, radius=1.0, u_scale=40.0, detail=3, rough=0.6, seed=6.0)
+        dens = nt.add(nt.mul(a, 0.6), nt.mul(b, 0.4))
+        steps = nt.smooth(nt.noise(nt.comb(nt.mul(u, 3.0), nt.mul(v, 14.0), 1.0), scale=1.0, detail=2), 0.45, 0.62)
+        cov = nt.mul(nt.mul(nt.smooth(dens, 0.5, 0.64), nt.smooth(uc, 1.0, 0.6)), nt.add(0.25, steps))
+        cov = nt.mul(cov, nt.smooth(v, 0.02, 0.08))
+        white = 1.0
     else:
         a = scroll_noise(nt, u, v, ph, speed_cycles=7, v_period=1.0, radius=1.4, u_scale=24.0, detail=5, rough=0.65, seed=9.0)
         b = scroll_noise(nt, u, v, ph, speed_cycles=15, v_period=0.5, radius=1.2, u_scale=60.0, detail=3, rough=0.6, seed=2.0)
         dens = nt.add(nt.mul(a, 0.5), nt.mul(b, 0.5))
         edge = nt.smooth(uc, 1.0, 0.3)
-        cov = nt.mul(nt.mul(nt.smooth(dens, 0.55, 0.68), edge), nt.smooth(v, 0.1, 0.5))
+        cov = nt.mul(nt.mul(nt.smooth(dens, 0.52, 0.66), edge), nt.smooth(v, 0.1, 0.45))
         white = 1.0
     foam = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': (0.92, 0.95, 0.97), 'Roughness': 0.25,
                                               'Subsurface Weight': 0.0, 'Transmission Weight': 0.0})
@@ -574,7 +623,7 @@ def mat_falls(name, layer=0):
     return m
 
 
-def mat_mist(name='Mist', density=2.5):
+def mat_mist(name='Mist', density=3.5):
     m, nt = new_material(name)
     ph = nt.group(phase_group('PhaseWF')).outputs[0]
     co = nt.coords('Object')
@@ -947,6 +996,7 @@ def main():
     m_stream = mat_water('StreamWater', 'PhaseBR', flow=True)
     m_falls0 = mat_falls('Falls', 0)
     m_falls1 = mat_falls('FallsSpray', 1)
+    m_falls2 = mat_falls('FallsHug', 2)
     m_mist = mat_mist()
     m_haze = mat_haze()
     m_bark = mat_bark()
@@ -969,7 +1019,7 @@ def main():
     si = min(range(len(samples)), key=lambda i: abs(samples[i][0].x - FX))
     p, tg, s = samples[si]
     rim = wall_rim('WallBack', p) + 0.6
-    for layer, (mat, gap0, gap1, w0, w1) in enumerate(((m_falls0, 0.10, 0.6, 1.1, 2.8), (m_falls1, 0.3, 1.2, 1.5, 4.0))):
+    for layer, (mat, gap0, gap1, w0, w1) in enumerate(((m_falls0, 0.05, 0.6, 1.2, 2.8), (m_falls1, 0.3, 1.2, 1.5, 4.0), (m_falls2, 0.025, 0.12, 2.0, 3.2))):
         nv, nu = 140, 28
         verts, uvs = [], []
         raw = []
@@ -984,7 +1034,7 @@ def main():
             c = Vector((c.x, c.y, z)); nrm = raw[j][1]
             # keep the sheet in front of the actual rock everywhere
             c += Vector((nrm.x, nrm.y, 0)) * max(0.0, max((raw[k][0] - c).to_2d().dot(nrm) for k in range(max(0, j - 3), min(nv, j + 4))))
-            gap = gap0 + (gap1 - gap0) * v ** 1.6
+            gap = gap0 + (gap1 - gap0) * v ** 2.4
             w = w0 + (w1 - w0) * v ** 1.3
             cen = c + Vector((nrm.x, nrm.y, 0)) * gap
             # lip at the top: water shoots slightly out over the edge
@@ -992,11 +1042,10 @@ def main():
                 u = i / (nu - 1)
                 off = (u - 0.5) * w
                 q = cen + Vector((tg.x, tg.y, 0)) * off
-                q += Vector((nrm.x, nrm.y, 0)) * (0.12 * math.cos((u - 0.5) * math.pi) * (1 - v))
                 verts.append(tuple(q)); uvs.append((u, v))
         ob = mesh_from_grid('Falls%d' % layer, verts, nu, nv, uvs)
         ob.data.materials.append(mat)
-        ob.visible_shadow = layer == 0
+        ob.visible_shadow = layer != 1
     impact = wall_point('WallBack', p, tg, -1, s, 0.0, 21.0)[0] + Vector((0, -0.5, 0))
 
     # water surfaces

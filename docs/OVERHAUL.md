@@ -78,9 +78,9 @@ service worker for offline. Android Chrome (Pixel 6a) is the primary target.
 | `output.ts` | The measured keep-alive signal: low-passed noise at about −60 dBFS RMS that runs under the water for the whole session (see `experiments/keepalive/RESULTS.md`). |
 | `media-session.ts` | Lock-screen metadata, artwork and position state. |
 | `assets.ts` | Resolves the asset contract to versioned URLs (`?v=<hash>`) from the build-time media manifest, picks AV1/H.264 and Opus/AAC, lists bowls. Missing files resolve to `null`. |
-| `scene/scene.ts` | Poster → loop video → camera-turn clips with no black frames, zoom/dim per mode, a single ≤30 fps frame loop (15 fps in session) that stops while hidden. |
+| `scene/scene.ts` | Poster → loop video → camera-turn clips with no black frames, zoom/dim per mode, one timer-paced frame loop (12 fps on setup, 8 fps in session, 24 fps only while the phone is tilting) that stops entirely while hidden. |
 | `scene/effects.ts` | 2D canvas atmosphere: mist banks, breathing light shafts, motes, all on random timing. |
-| `scene/parallax.ts` | WebGL depth-map displacement (≤7 CSS px) driven by `deviceorientation` (mouse on desktop). Setup screen only. |
+| `scene/parallax.ts` | WebGL depth-map displacement (≤7 CSS px, canvas capped at 2× DPR) driven by `deviceorientation` (mouse on desktop). Setup screen only. |
 | `ui.ts` | DOM, gestures, keyboard, credits rendering. |
 | `prefs.ts` | Validated local preferences. |
 | `main.ts` | Wiring. `update()` is the only place that reconciles audio and repaints; page timers only call it. |
@@ -105,6 +105,33 @@ Measured on the Pixel 6a (Vanadium 155, `experiments/keepalive/RESULTS.md`): pla
 `destination` keeps the page and clock alive with the screen off and Doze forced, as long as the
 output never drops below ≈ −72 dBFS. No lock-screen media notification appears in either output
 route; Media Session metadata is still set.
+
+### Performance (Pixel 6a, Vanadium 155, production build, poster only)
+CPU of all Vanadium processes, % of one core, 20–30 s samples via `/proc/<pid>/stat`:
+
+| State | CPU |
+| --- | --- |
+| Idle tab (about:blank) | 2 % |
+| Setup, effects off entirely | 3 % |
+| Setup, 12 fps effects | 27–28 % |
+| Setup, parallax on, phone still | 29 % |
+| Setup, phone continuously tilting (24 fps parallax) | 45 % |
+| Session, screen on (8 fps effects) | 25 % |
+| Session, screen off (audio only, water on) | 8.5 % (GPU process 0 %) |
+
+Findings that shaped the code: a per-vsync `requestAnimationFrame` loop costs ~30 % on its own
+(every tick composites a frame), so the loop is timer-paced; each composited frame costs
+≈ 1.5 % per fps, while canvas resolution made no measurable difference; an infinite CSS
+animation (the former "breathing" Start ring) forced 60 Hz compositing (+26 %) and was removed.
+The loop video will add decoder and compositing cost when it lands; re-measure then.
+
+### Device notes (Pixel 6a)
+- The phone has system animations off (all animation scales 0), which Chromium reports as
+  `prefers-reduced-motion: reduce`. The app then skips camera zoom, parallax, motes and turn
+  clips (crossfade instead) and slows the mist. Turning animations back on enables them.
+- Vanadium blocks motion sensors per site by default (`deviceorientation` reports `null`), so
+  parallax stays off unless motion sensors are allowed for the site. The parallax path itself
+  was verified on the phone's GPU with synthetic orientation events.
 
 ### Assets and offline
 `scripts/media.mjs` hashes everything under `public/scenes` and `public/audio`. Vite exposes it

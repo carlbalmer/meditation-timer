@@ -410,7 +410,6 @@ button {
 }
 
 .start {
-  position: relative;
   display: grid;
   place-items: center;
   width: 78px;
@@ -422,15 +421,6 @@ button {
   background: radial-gradient(rgb(var(--glow) / 0.1), transparent 70%);
   filter: drop-shadow(0 0 8px rgb(0 0 0 / 0.35));
   transition: transform 0.4s var(--soft);
-}
-
-.start::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: 50%;
-  border: 1px solid rgb(var(--glow) / 0.5);
-  animation: breathe 6s ease-in-out infinite;
 }
 
 .start svg {
@@ -630,20 +620,6 @@ button {
   }
 }
 
-@keyframes breathe {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0;
-  }
-  45% {
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.32);
-  }
-}
-
 @keyframes chime {
   0% {
     opacity: 0;
@@ -674,9 +650,5 @@ button {
   .camera {
     transform: none;
     transition: none;
-  }
-
-  .start::before {
-    animation: none;
   }
 }
