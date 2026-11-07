@@ -1,3 +1,6 @@
+> **Superseded (2026-11-07).** This describes v1 (ivory UI, foreground-only sessions with a screen
+> wake lock). The current product and implementation are described in [OVERHAUL.md](OVERHAUL.md).
+
 # Meditation timer: design and implementation plan
 
 Status: implemented first version, 2026-09-17. Browser verification underway.

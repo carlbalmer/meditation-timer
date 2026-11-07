@@ -1,0 +1,52 @@
+<!doctype html><meta name=viewport content="width=device-width"><title>keepalive</title>
+<style>html,body{margin:0;height:100%;background:#123;color:#fff;font:24px sans-serif}body{display:grid;place-items:center}</style>
+<div id=out>tap anywhere</div>
+<script>
+const q = new URLSearchParams(location.search);
+const mode = q.get('mode') || 'webaudio';      // webaudio | element
+const level = Number(q.get('db') ?? -60);       // keep-alive level in dBFS; 'off' => silent
+const gongAt = Number(q.get('gong') ?? 240);    // seconds after start
+const run = q.get('run') || mode + level;
+const queue = [];
+const flush = () => { if (!queue.length) return; const batch = queue.splice(0);
+  fetch('/log', { method: 'POST', keepalive: true, body: JSON.stringify({ run, batch }) }).catch(() => queue.unshift(...batch)); };
+const log = data => { queue.push({ t: Date.now(), ...data }); flush(); };
+// Audio-thread meter: proves the gong samples were actually rendered, even if the main thread was frozen.
+const meter = `registerProcessor('meter', class extends AudioWorkletProcessor {
+  constructor() { super(); this.hit = null; this.port.onmessage = () => this.port.postMessage(this.hit); }
+  process([input]) { const ch = input[0]; if (ch && this.hit === null) for (const v of ch) if (Math.abs(v) > 0.01) { this.hit = currentTime; break; } return true; } });`;
+let started = false;
+document.body.onclick = async () => {
+  if (started) return; started = true;
+  const ctx = new AudioContext();
+  await ctx.resume();
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([meter], { type: 'text/javascript' })));
+  let out = ctx.destination;
+  if (mode === 'element') {
+    const dest = ctx.createMediaStreamDestination();
+    const el = new Audio(); el.srcObject = dest.stream; await el.play(); out = dest;
+  }
+  const noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const d = noise.getChannelData(0); let b = 0;
+  for (let i = 0; i < d.length; i++) { b = 0.97 * b + 0.03 * (Math.random() * 2 - 1); d[i] = b * 4; }
+  const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
+  const g = ctx.createGain(); g.gain.value = Number.isFinite(level) ? 10 ** (level / 20) : 0;
+  src.connect(g).connect(out); src.start();
+  const osc = ctx.createOscillator(); osc.frequency.value = 440;
+  const env = ctx.createGain(); env.gain.value = 0;
+  const a0 = ctx.currentTime, when = a0 + gongAt;
+  env.gain.setValueAtTime(0, when); env.gain.linearRampToValueAtTime(0.3, when + 0.02); env.gain.exponentialRampToValueAtTime(0.001, when + 3);
+  const m = new AudioWorkletNode(ctx, 'meter');
+  osc.connect(env); env.connect(out); env.connect(m); m.connect(ctx.destination); osc.start(); osc.stop(when + 3.2);
+  m.port.onmessage = e => log({ ev: 'meter', gongRenderedAt: e.data === null ? null : e.data - a0 });
+  if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: 'Keep-alive test ' + run });
+  const t0 = Date.now(); let last = t0, maxGap = 0;
+  log({ ev: 'start', mode, level, gongAt, sampleRate: ctx.sampleRate });
+  setInterval(() => { const now = Date.now(); maxGap = Math.max(maxGap, now - last); last = now;
+    log({ ev: 'beat', wall: (now - t0) / 1000, ac: ctx.currentTime - a0, state: ctx.state, vis: document.visibilityState, maxGap: maxGap / 1000 }); }, 2000);
+  document.addEventListener('visibilitychange', () => { log({ ev: 'vis', vis: document.visibilityState, wall: (Date.now() - t0) / 1000, ac: ctx.currentTime - a0 }); if (document.visibilityState === 'visible') m.port.postMessage(0); });
+  ctx.onstatechange = () => log({ ev: 'ctxstate', state: ctx.state, wall: (Date.now() - t0) / 1000 });
+  out_.textContent = run;
+};
+const out_ = document.getElementById('out');
+</script>

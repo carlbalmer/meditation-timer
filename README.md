@@ -1,64 +1,34 @@
-# Meditation timer
+# Meditation
 
-An installable meditation timer for quiet, foreground sessions. Choose a
-duration, a warm-up, and a singing bowl or cymbal; the selected sound opens and
-closes the meditation. Preferences stay in the browser on this device.
+A meditation timer that puts you in a place: a rendered mountain gorge, live mist and light,
+and almost nothing else on screen. Pick a duration, press Start, and everything fades away
+but the countdown. Gongs are scheduled on the Web Audio clock, so a session keeps time with
+the screen off.
 
-The app is a small Vite build using plain HTML, CSS, and TypeScript. It keeps
-the session on one page and asks for a screen wake lock while warm-up or
-meditation is active when the browser supports it. Keep the page visible: a
-browser or operating system may suspend background pages, so a PWA cannot be
-used as a guaranteed locked-screen alarm.
+Live at <https://carlbalmer.github.io/meditation-timer/> (every push to `main` deploys).
 
-## Develop in WSL
+## Use
+- **Duration**: swipe the number up/down, or tap 8 · 12 · 20. Arrow keys work too.
+- **Warm-up** (ring): tap to cycle off / 15 / 30 / 45 / 60 s.
+- **Water**: toggle the ambience. **Bowl**: tap to hear the next bowl.
+- **Scene**: swipe sideways to turn the camera around.
+- **Running**: tap anywhere for Skip / Cancel (warm-up) or End.
 
-The repository is set up at `/home/codex/meditation-timer`. The WSL Node.js
-runtime is installed at `~/.local/node/bin`; use it explicitly in a shell where
-that directory is not already on `PATH`:
-
+## Develop
 ```sh
-cd ~/meditation-timer
-export PATH="$HOME/.local/node/bin:$PATH"
 npm install
-npm run dev
+npm run dev      # http://localhost:5173/meditation-timer/
+npm test         # session + scheduling logic (node --test)
+npm run build    # typecheck, build to dist/, generate the service worker
+npm run preview  # serve dist/ to check the service worker and offline use
 ```
+On a phone over USB: `adb reverse tcp:5173 tcp:5173`, then open the dev URL (localhost is a
+secure context, so audio, sensors and service workers behave as in production).
 
-Open the Vite URL in Brave. The development server binds to `0.0.0.0`, which
-makes it reachable from Windows through `http://localhost:5173`.
+Design, asset contract and module overview: [docs/OVERHAUL.md](docs/OVERHAUL.md).
+Rendered scenes come from `tools/scene/`, sounds from `tools/audio/`; credits are in
+[public/audio/CREDITS.md](public/audio/CREDITS.md) and in the app's info sheet.
 
-Run the focused timing tests and production build with:
-
-```sh
-npm test
-npm run build
-npm run preview
-```
-
-The build writes the deployable static site to `dist/`. The service worker is
-generated as part of the build and should be checked with the production
-preview, because the Vite development server does not provide the deployed
-service-worker behaviour.
-
-## GitHub Pages
-
-Every push to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
-The workflow installs the locked dependencies, builds `dist/`, uploads it as a
-Pages artifact, and deploys it with the official GitHub Pages actions. It also
-supports a manual run from the Actions tab. The site is expected at
-`https://carlbalmer.github.io/meditation-timer/` after Pages has been enabled
-for the repository.
-
-Before the first release, verify that a fresh production preview can load the
-manifest, icons, service worker, and every bundled sound. Then test a short
-warm-up and meditation in Brave, including preview playback, skip, cancel,
-manual end, natural completion, refresh, and offline reload after the service
-worker has cached the app. Keep the tab visible during timing tests.
-
-## Sound credits
-
-The bundled recordings are by [Cpt_Asteroid](https://freesound.org/people/Cpt_Asteroid/)
-on Freesound and are released under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
-Individual recording links and the noncommercial restriction are documented in
-[`resources/LICENSE.txt`](resources/LICENSE.txt) and the in-app “About & sounds”
-dialog. The recordings may be shared or remixed with attribution, but they are
-not licensed for commercial use.
+## Licences
+Five bowl recordings by Cpt_Asteroid are CC BY-NC 4.0 (non-commercial); the rest of the audio
+is CC0. Cormorant Garamond is under the SIL Open Font License ([src/fonts/OFL.txt](src/fonts/OFL.txt)).
