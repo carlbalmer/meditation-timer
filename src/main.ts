@@ -165,6 +165,14 @@ void scene.show(prefs.scene);
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   addEventListener('load', async () => {
     const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+    // A new version waits until no session is running: at launch, or when the idle app is hidden.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) location.reload(); });
+    const applyUpdate = () => { if (!starting && !active()) registration.waiting?.postMessage({ activate: true }); };
+    applyUpdate();
+    registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', applyUpdateWhenHidden));
+    document.addEventListener('visibilitychange', applyUpdateWhenHidden);
+    function applyUpdateWhenHidden() { if (document.visibilityState === 'hidden') applyUpdate(); }
     await navigator.serviceWorker.ready;
     requestIdleCallback(() => registration.active?.postMessage({ cache: offlineUrls() }), { timeout: 10_000 });
   });

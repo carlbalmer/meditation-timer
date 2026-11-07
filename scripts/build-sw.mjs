@@ -36,6 +36,7 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('message', event => {
+  if (event.data?.activate) return void self.skipWaiting();
   const urls = (event.data?.cache ?? []).map(url => new URL(url, scope).href).filter(url => MEDIA_URLS.has(url));
   event.waitUntil((async () => {
     const media = await caches.open(MEDIA);
@@ -75,7 +76,7 @@ self.addEventListener('fetch', event => {
   }
   event.respondWith((async () => {
     const shell = await caches.open(SHELL);
-    const cached = await shell.match(request.mode === 'navigate' ? scope : request);
+    const cached = await shell.match(request.mode === 'navigate' ? scope : request, { ignoreVary: true });
     return cached ?? fetch(request);
   })());
 });

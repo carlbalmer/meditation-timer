@@ -139,5 +139,8 @@ as `virtual:media` (the app knows what exists, so missing renders cost no 404s a
 CSS gradient posters, no video, a synthesized bowl and a silent keep-alive). `scripts/build-sw.mjs`
 writes `sw.js`: the shell is precached on install; after load the page asks the worker to cache
 the media variants this browser actually uses, one at a time. Cached media answer `Range`
-requests with 206 slices. The worker never calls `skipWaiting`, so a new version only takes over
-after every window is closed — never mid-session.
+requests with 206 slices. A new version waits; the page activates it only while no session is
+running (at launch, or when the idle app is hidden) and reloads on `controllerchange` — never
+mid-session. Shell lookups use `ignoreVary`: Chromium sends `Origin` on the `crossorigin`
+script/style requests, so a server's `Vary: Origin` would otherwise make every lookup miss and
+fall through to a network copy that no longer exists after a deploy (verified on the phone).
