@@ -18,6 +18,8 @@ const LOAD_TIMEOUT_MS = 4000;
 const within = <T>(promise: Promise<T | null>, ms: number) =>
   Promise.race([promise, new Promise<null>(resolve => setTimeout(resolve, ms, null))]);
 const active = () => shown === 'warmup' || shown === 'meditation';
+// Busy from Start until the closing gong has rung out.
+const busy = () => starting || active() || !audio.idle;
 
 const prefs = loadPrefs();
 if (!SCENES.includes(prefs.scene)) prefs.scene = SCENES[0];
@@ -31,6 +33,7 @@ let shown: Phase = 'idle';
 let starting = false;
 let repaint = 0;
 let restTimer = 0;
+let reloadPending = false;
 
 const ui = createUi({
   minutes: value => change({ minutes: clampMinutes(value) }),
@@ -54,7 +57,7 @@ const ui = createUi({
     const id = typeof target === 'string' ? target : SCENES[(index + target + SCENES.length) % SCENES.length];
     if (id === prefs.scene) return;
     change({ scene: id });
-    void scene.turn(id);
+    scene.turn(id);
   },
   start: beginSession,
   skip: () => act(skip),
@@ -94,7 +97,7 @@ async function prepareSession() {
   audio.startBed();
   const [gong, bed] = await Promise.all([
     within(audio.load(bowls[bowlIndex]?.url ?? null), LOAD_TIMEOUT_MS),
-    prefs.water ? within(audio.load(water(scene.sceneId)), LOAD_TIMEOUT_MS) : null,
+    prefs.water ? within(audio.load(water(prefs.scene)), LOAD_TIMEOUT_MS) : null,
   ]);
   audio.setGong(gong);
   audio.setWater(bed);
@@ -136,7 +139,11 @@ function transition(from: Phase, to: Phase, current: [number, number] | null) {
 
 function restSoon() {
   clearTimeout(restTimer);
-  restTimer = window.setTimeout(() => (starting || active() ? undefined : audio.rest()), REST_AFTER_MS);
+  restTimer = window.setTimeout(() => {
+    if (busy()) restSoon();
+    else if (reloadPending) location.reload();
+    else audio.rest();
+  }, REST_AFTER_MS);
 }
 
 audio.onStateChange = update;
@@ -162,18 +169,29 @@ ui.renderSetup(prefs, bowlIndex, bowls.length);
 ui.setPhase('idle');
 void scene.show(prefs.scene);
 
+// Updates never interrupt a session: the waiting worker asks every window
+// whether it is busy before taking over, and a page that is busy anyway when
+// the new worker arrives reloads only once it is idle again.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  const sw = navigator.serviceWorker;
+  sw.addEventListener('message', event => {
+    if (event.data?.query === 'busy') event.ports[0]?.postMessage({ busy: busy() });
+  });
+  sw.startMessages();
   addEventListener('load', async () => {
-    const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
-    // A new version waits until no session is running: at launch, or when the idle app is hidden.
-    const hadController = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) location.reload(); });
-    const applyUpdate = () => { if (!starting && !active()) registration.waiting?.postMessage({ activate: true }); };
+    const hadController = !!sw.controller;
+    const registration = await sw.register(`${import.meta.env.BASE_URL}sw.js`);
+    sw.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      if (busy()) reloadPending = true;
+      else location.reload();
+    });
+    const applyUpdate = () => registration.waiting?.postMessage({ activate: true });
+    const applyUpdateWhenHidden = () => document.visibilityState === 'hidden' && !busy() && applyUpdate();
     applyUpdate();
     registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', applyUpdateWhenHidden));
     document.addEventListener('visibilitychange', applyUpdateWhenHidden);
-    function applyUpdateWhenHidden() { if (document.visibilityState === 'hidden') applyUpdate(); }
-    await navigator.serviceWorker.ready;
+    await sw.ready;
     requestIdleCallback(() => registration.active?.postMessage({ cache: offlineUrls() }), { timeout: 10_000 });
   });
 }

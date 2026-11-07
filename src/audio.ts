@@ -113,12 +113,16 @@ export class AudioEngine {
     bed.water = source;
   }
 
+  // Nothing is playing, due or about to play.
+  get idle() {
+    const ctx = this.ctx;
+    if (!ctx) return true;
+    return !this.bed && !this.previewing && !this.previewLoading && !this.pending.length && this.ringEnd <= ctx.currentTime;
+  }
+
   // Suspends the idle audio device to save battery; unlock() wakes it.
   rest() {
-    const ctx = this.ctx;
-    if (!ctx || !this.running || this.bed || this.previewing || this.previewLoading || this.pending.length) return;
-    if (this.ringEnd > ctx.currentTime) return;
-    void ctx.suspend();
+    if (this.running && this.idle) void this.ctx!.suspend();
   }
 
   previewBowl(url: string | null) {

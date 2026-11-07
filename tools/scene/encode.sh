@@ -6,7 +6,7 @@ set -eu
 FF=${FF:-$HOME/bin/ffmpeg}
 R=${R:-$HOME/vms/blender/share/scene/renders}
 OUT=${OUT:-$HOME/.t3/projects/meditation-timer/public/scenes}
-CRF_AV1=${CRF_AV1:-40}; CRF_264=${CRF_264:-24}
+CRF_AV1=${CRF_AV1:-40}; CRF_264=${CRF_264:-27}
 q() { $FF -hide_banner -loglevel error -y "$@"; }
 case $1 in
 loop)

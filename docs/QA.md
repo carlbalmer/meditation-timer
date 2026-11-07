@@ -34,8 +34,28 @@ the page was back on the setup screen after waking. Keep-alive median block leve
 - Phone UI: setup, warm-up, reveal, meditation, End and return to setup checked on screenshots;
   scrim and countdown placement adjusted for legibility over the bright waterfall render.
 
+## Review round 2 (scene, UI, service worker)
+- `npm test`: 41 tests (adds `src/sw/logic.test.ts`: byte ranges and 416, runtime cacheability,
+  per-file caching past network/HTTP/quota errors with retry, busy query incl. a silent window).
+- Update handshake, headless Chromium against the production preview: with a session running in
+  tab A, a new worker stayed waiting when idle tab B launched and when A itself asked; after A
+  cancelled, B's request activated it and A reloaded. A `controllerchange` during a session
+  deferred A's reload until 20 s after the session ended. A controlled page got
+  `416 bytes */995060` for an unsatisfiable range and 206 slices from the cache.
+- Phone (test copy of the app with generated turn clips, never in `public/scenes`):
+  - three and two rapid swipes: saved scene and screen always agree (queued turn back);
+  - screen off mid-crossfade: the incoming loop paused while hidden, only it resumed on return;
+  - real clip: plays its full 2.5 s, outgoing scene hidden only after the clip presents frames;
+  - truncated clip that never presents: crossfade after 1 s; corrupt clip: crossfade after
+    1.5 s; clip that dies at 1.3 s: cut to the next scene; switching never wedged;
+  - `WEBGL_lose_context`: canvas hidden at once (plain scene, no black), parallax back after restore;
+  - bridge without a poster but with depth: parallax stays off; on for the waterfall loop;
+  - toggling system animations with the page open flips parallax on/off without a reload.
+- Headless: "Show controls" is the only control exposed while running; Tab reveals, controls
+  stay while focused, hide 4 s after focus leaves; a tap still auto-hides.
+
 ## Not yet verified
-- Loop video, camera-turn clips and the bridge scene (renders not delivered yet).
+- Real camera-turn clips and the bridge loop (not delivered yet; tested with generated clips).
 - Installed home-screen PWA (all checks ran in a browser tab).
 - Real tilt on the phone (Vanadium blocks motion sensors by default; synthetic events only).
 - A 20-minute session.

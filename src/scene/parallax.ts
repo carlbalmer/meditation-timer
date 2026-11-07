@@ -20,25 +20,109 @@ void main() {
 }`;
 
 type Source = HTMLVideoElement | HTMLImageElement;
+type Resources = { image: WebGLTexture; depth: WebGLTexture; scale: WebGLUniformLocation; shift: WebGLUniformLocation };
 
 export const MAX_SHIFT_PX = 7;
 
+const size = (source: Source) =>
+  source instanceof HTMLVideoElement ? [source.videoWidth, source.videoHeight] : [source.naturalWidth, source.naturalHeight];
+
+// A source is usable once it has a decoded frame with real dimensions.
+const usable = (source: Source) => size(source).every(n => n > 0) && (source instanceof HTMLVideoElement ? source.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA : source.complete);
+
 export class Parallax {
   private gl: WebGLRenderingContext;
-  private image: WebGLTexture;
-  private depth: WebGLTexture;
-  private scale: WebGLUniformLocation;
-  private shift: WebGLUniformLocation;
+  private gpu: Resources | null = null;
   private source: Source | null = null;
+  private depthImage: HTMLImageElement | null = null;
   private fresh = false;
 
-  static create(canvas: HTMLCanvasElement) {
+  static create(canvas: HTMLCanvasElement, onChange: () => void) {
     const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, powerPreference: 'low-power' });
-    return gl ? new Parallax(canvas, gl) : null;
+    return gl ? new Parallax(canvas, gl, onChange) : null;
   }
 
-  private constructor(private canvas: HTMLCanvasElement, gl: WebGLRenderingContext) {
+  private constructor(private canvas: HTMLCanvasElement, gl: WebGLRenderingContext, onChange: () => void) {
     this.gl = gl;
+    this.gpu = this.build();
+    canvas.addEventListener('webglcontextlost', event => {
+      event.preventDefault();
+      this.gpu = null;
+      onChange();
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.gpu = this.build();
+      this.upload();
+      onChange();
+    });
+  }
+
+  // Usability is checked once in setScene: a looping video briefly has no
+  // current frame while it seeks back to the start.
+  get ready() {
+    return !!this.gpu && !!this.source && !!this.depthImage;
+  }
+
+  get lost() {
+    return !this.gpu;
+  }
+
+  get animated() {
+    return this.source instanceof HTMLVideoElement && !this.source.paused;
+  }
+
+  clear() {
+    this.source = null;
+  }
+
+  setScene(source: Source, depth: HTMLImageElement) {
+    this.source = usable(source) ? source : null;
+    this.depthImage = depth;
+    if (!this.source) return;
+    this.upload();
+    if (source instanceof HTMLVideoElement) {
+      const onFrame = () => {
+        if (this.source !== source) return;
+        this.fresh = true;
+        source.requestVideoFrameCallback(onFrame);
+      };
+      source.requestVideoFrameCallback(onFrame);
+    }
+  }
+
+  // tilt is -1..1 per axis; skips work when neither the frame nor the tilt changed.
+  draw(tiltX: number, tiltY: number, tiltChanged: boolean) {
+    const { gl, canvas, source, gpu } = this;
+    if (!gpu || !source || !this.ready || (!this.fresh && !tiltChanged)) return;
+    const [width, height] = size(source);
+    if (this.fresh && usable(source)) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
+      this.fresh = false;
+    }
+    const cover = Math.max(canvas.width / width, canvas.height / height);
+    const scaleX = canvas.width / (width * cover);
+    const scaleY = canvas.height / (height * cover);
+    const px = (2 * MAX_SHIFT_PX * canvas.width) / canvas.clientWidth;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform2f(gpu.scale, scaleX, scaleY);
+    gl.uniform2f(gpu.shift, (tiltX * px * scaleX) / canvas.width, (tiltY * px * scaleY) / canvas.height);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  private upload() {
+    const { gl, gpu } = this;
+    if (!gpu || !this.depthImage) return;
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, gpu.depth);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, this.depthImage);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gpu.image);
+    this.fresh = true;
+  }
+
+  private build(): Resources | null {
+    const gl = this.gl;
+    if (gl.isContextLost()) return null;
     const program = gl.createProgram()!;
     for (const [type, code] of [[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]] as const) {
       const shader = gl.createShader(type)!;
@@ -52,56 +136,11 @@ export class Parallax {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    this.image = texture(gl);
-    this.depth = texture(gl);
     gl.uniform1i(gl.getUniformLocation(program, 'image'), 0);
     gl.uniform1i(gl.getUniformLocation(program, 'depth'), 1);
-    this.scale = gl.getUniformLocation(program, 'scale')!;
-    this.shift = gl.getUniformLocation(program, 'shift')!;
-  }
-
-  setScene(source: Source, depth: HTMLImageElement) {
-    const gl = this.gl;
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.depth);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, depth);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.image);
-    this.setSource(source);
-  }
-
-  setSource(source: Source) {
-    this.source = source;
-    this.fresh = true;
-    if (source instanceof HTMLVideoElement) {
-      const onFrame = () => {
-        if (this.source !== source) return;
-        this.fresh = true;
-        source.requestVideoFrameCallback(onFrame);
-      };
-      source.requestVideoFrameCallback(onFrame);
-    }
-  }
-
-  // tilt is -1..1 per axis; skips work when neither the frame nor the tilt changed.
-  draw(tiltX: number, tiltY: number, tiltChanged: boolean) {
-    const { gl, canvas, source } = this;
-    if (!source || (!this.fresh && !tiltChanged)) return;
-    const width = source instanceof HTMLVideoElement ? source.videoWidth : source.naturalWidth;
-    const height = source instanceof HTMLVideoElement ? source.videoHeight : source.naturalHeight;
-    if (!width || !height) return;
-    if (this.fresh) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
-      this.fresh = false;
-    }
-    const cover = Math.max(canvas.width / width, canvas.height / height);
-    const scaleX = canvas.width / (width * cover);
-    const scaleY = canvas.height / (height * cover);
-    const px = (2 * MAX_SHIFT_PX * canvas.width) / canvas.clientWidth;
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.uniform2f(this.scale, scaleX, scaleY);
-    gl.uniform2f(this.shift, (tiltX * px * scaleX) / canvas.width, (tiltY * px * scaleY) / canvas.height);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    const depth = texture(gl);
+    const image = texture(gl);
+    return { image, depth, scale: gl.getUniformLocation(program, 'scale')!, shift: gl.getUniformLocation(program, 'shift')! };
   }
 }
 

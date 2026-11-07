@@ -153,6 +153,10 @@ button {
   opacity: 1;
 }
 
+.parallax.lost {
+  visibility: hidden;
+}
+
 .effects {
   pointer-events: none;
 }
@@ -495,6 +499,12 @@ button {
   opacity: 0.8;
 }
 
+.reveal {
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+}
+
 .countdown .ring {
   position: absolute;
   width: 112px;
@@ -509,7 +519,13 @@ button {
   transition: opacity 1.2s, stroke-dashoffset 1s linear;
 }
 
-.app[data-phase='meditation'] .countdown .ring {
+.app[data-phase='meditation'] .reveal {
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+}
+
+.countdown .ring {
   opacity: 0;
 }
 

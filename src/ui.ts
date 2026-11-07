@@ -40,6 +40,8 @@ export function createUi(on: Handlers) {
   click('.skip', on.skip);
   click('.cancel', on.cancel);
   click('.end', on.end);
+  click('.reveal', () => reveal());
+  $('.running').addEventListener('focusin', () => reveal());
   click('.info', async () => {
     renderCredits($('.credits-body'), await on.credits());
     credits.showModal();
@@ -107,20 +109,29 @@ export function createUi(on: Handlers) {
     }
   });
 
+  // Controls stay while they hold focus, so keyboard and screen-reader users
+  // are never left on a control that vanishes.
   function reveal() {
-    app.classList.add('revealed');
+    setRevealed(true);
     clearTimeout(revealTimer);
     revealTimer = window.setTimeout(() => {
-      if (!app.querySelector('.actions')!.contains(document.activeElement)) app.classList.remove('revealed');
-      else reveal();
+      const focus = document.activeElement;
+      const held = $('.actions').contains(focus) || (focus === $('.reveal') && focus.matches(':focus-visible'));
+      if (held) reveal();
+      else setRevealed(false);
     }, REVEAL_MS);
+  }
+
+  function setRevealed(revealed: boolean) {
+    app.classList.toggle('revealed', revealed);
+    $('.reveal').setAttribute('aria-expanded', String(revealed));
   }
 
   return {
     setPhase(phase: Phase) {
       const running = phase === 'warmup' || phase === 'meditation';
       if (!running) {
-        app.classList.remove('revealed');
+        setRevealed(false);
         clearTimeout(revealTimer);
       }
       app.dataset.phase = running ? phase : 'idle';

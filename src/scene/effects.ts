@@ -23,11 +23,15 @@ export class Effects {
   private width = 0;
   private height = 0;
   private scale = 1;
-  private calm: boolean;
+  private calm = false;
 
-  constructor(private canvas: HTMLCanvasElement, reducedMotion: boolean) {
+  constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
-    this.calm = reducedMotion;
+  }
+
+  // Reduced motion keeps the ambience, slower, with only the rare mote.
+  setCalm(calm: boolean) {
+    this.calm = calm;
   }
 
   setScene(light: Rgb, focusX: number, focusY: number) {
@@ -60,7 +64,7 @@ export class Effects {
     if (!w) return;
     this.sprites ??= sprites(this.light);
     const sparse = this.density === 'session';
-    const speed = this.calm ? 0.3 : 1;
+    const speed = this.calm ? 0.5 : 1;
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.globalCompositeOperation = 'lighter';
@@ -87,7 +91,7 @@ export class Effects {
       ctx.drawImage(this.sprites.mist, m.x - m.w / 2, m.y - m.h / 2 + Math.sin(m.age * 0.21) * 6, m.w, m.h);
     }
 
-    if (!this.calm && Math.random() < dt * (sparse ? 0.08 : 0.45)) this.motes.push(this.spawnMote());
+    if (Math.random() < dt * (sparse ? 0.08 : 0.45) * (this.calm ? 0.15 : 1)) this.motes.push(this.spawnMote());
     this.motes = this.motes.filter(m => (m.age += dt) < m.life);
     for (const m of this.motes) {
       m.x += (m.vx + Math.sin(m.age * m.sway) * 4) * dt;

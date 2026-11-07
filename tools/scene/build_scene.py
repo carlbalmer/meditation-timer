@@ -432,6 +432,9 @@ def mat_pebbles(name='PebbleBed'):
     teal = nt.node('ShaderNodeVectorMath', operation='MULTIPLY')
     nt.set(teal.inputs[0], nt.vmath('SUBTRACT', (1.0, 1.0, 1.0), tr.outputs[0])); teal.inputs[1].default_value = (0.006, 0.020, 0.019)
     col = nt.vmath('ADD', nt.vmath('MULTIPLY', col, tr.outputs[0]), teal.outputs['Vector'])
+    # dry gravel banks: lower contrast and a bit darker so they stay calm behind the UI
+    dry = nt.smooth(wd, 0.0, -0.15)
+    col = nt.mix(nt.mul(dry, 0.72), col, (0.075, 0.07, 0.06), 'MIX')
     z = nt.sep(co)[2]
     # animated caustics (periodic), only below the water line
     ph = nt.group(phase_group('PhaseWF')).outputs[0]
@@ -443,7 +446,7 @@ def mat_pebbles(name='PebbleBed'):
     wetrough = nt.mix(underwater, 0.75, 0.35, dtype='FLOAT')
     bsdf = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': col, 'Roughness': wetrough})
     dimg = nt.image(tex('dry_river_pebbles', '_disp_'), vec, 'Non-Color', 'BOX', 0.2)
-    flat = nt.smooth(wd, 0.75, 0.2)     # deep parts: smooth silty bottom
+    flat = nt.mul(nt.smooth(wd, 0.75, 0.2), nt.sub(1.0, nt.mul(dry, 0.5)))     # deep parts: smooth silty bottom; dry banks: softer
     hgt = nt.add(nt.mul(nt.sub(nt.node('ShaderNodeRGBToBW', {'Color': dimg}).outputs[0], 0.5), flat), 0.5)
     disp = nt.node('ShaderNodeDisplacement', {'Height': hgt, 'Midlevel': 0.5, 'Scale': 0.06}, space='OBJECT')
     output(nt, bsdf, displacement=disp)
@@ -512,7 +515,7 @@ def mat_floor_combined():
     steep = nt.smooth(nz, 0.8, 0.55)
     rockm = nt.math('MAXIMUM', nt.mul(slab, high), steep)
     gravel_bank = nt.mul(nt.smooth(nt.sub(sx[0], 0.0), 0.5, -1.5), nt.smooth(sx[1], 0.0, -3.0))
-    rockm = nt.mul(rockm, nt.sub(1.0, nt.mul(gravel_bank, 0.8)))
+    rockm = nt.mul(rockm, nt.sub(1.0, nt.mul(gravel_bank, nt.mul(nt.smooth(sx[1], -3.0, -2.0), 0.8))))
     sh = nt.node('ShaderNodeMixShader'); nt.set(sh.inputs[0], rockm); nt.link(a.outputs[0], sh.inputs[1]); nt.link(b.outputs[0], sh.inputs[2])
     dsp = nt.mix(rockm, a.outputs[1], b.outputs[1], dtype='VECTOR')
     # leaf litter / soil on the bushy -X slope downstream
@@ -694,15 +697,20 @@ def mat_bridge():
     return m
 
 
-def mat_distant(name, base, haze=(0.62, 0.72, 0.86), haze_dist=4000.0, emission=1.0):
+def mat_distant(name, base, haze=(0.62, 0.72, 0.86), haze_dist=4000.0, emission=1.0, forest_top=None, low_z=-250.0, high_z=900.0):
     m, nt = new_material(name)
     cam = nt.node('ShaderNodeCameraData')
     d = cam.outputs['View Distance']
     f = nt.math('EXPONENT', nt.mul(d, -1.0 / haze_dist))
-    fac = nt.sub(1.0, f)
     co = nt.coords('Object')
+    # aerial perspective: denser haze low down (valley air), thinner on the ridges
+    fac = nt.math('MINIMUM', nt.add(nt.sub(1.0, f), nt.mul(nt.smooth(nt.sep(co)[2], high_z, low_z), 0.10)), 0.97)
     n = nt.noise(co, scale=0.01, detail=6)
     col = nt.mix(n, (base[0] * 0.6, base[1] * 0.6, base[2] * 0.6), base)
+    if forest_top is not None:
+        clumps = nt.noise(co, scale=0.035, detail=4, rough=0.7)
+        forest = nt.mix(clumps, (0.025, 0.03, 0.018), (0.07, 0.065, 0.04))
+        col = nt.mix(nt.smooth(nt.add(nt.sep(co)[2], nt.mul(n, 200.0)), forest_top + 120.0, forest_top - 60.0), col, forest)
     bsdf = nt.node('ShaderNodeBsdfDiffuse', {'Color': col})
     em = nt.node('ShaderNodeEmission', {'Color': haze, 'Strength': emission})
     mx = nt.node('ShaderNodeMixShader'); nt.set(mx.inputs[0], fac); nt.link(bsdf, mx.inputs[1]); nt.link(em, mx.inputs[2])
@@ -713,10 +721,14 @@ def mat_distant(name, base, haze=(0.62, 0.72, 0.86), haze_dist=4000.0, emission=
 def mat_lake():
     m, nt = new_material('Lake')
     cam = nt.node('ShaderNodeCameraData')
-    fac = nt.sub(1.0, nt.math('EXPONENT', nt.mul(cam.outputs['View Distance'], -1.0 / 5000.0)))
-    gl = nt.node('ShaderNodeBsdfGlossy', {'Color': (0.5, 0.6, 0.7), 'Roughness': 0.15})
-    dif = nt.node('ShaderNodeBsdfDiffuse', {'Color': (0.03, 0.06, 0.08)})
-    w = nt.node('ShaderNodeMixShader', {0: 0.5}); nt.link(dif, w.inputs[1]); nt.link(gl, w.inputs[2])
+    fac = nt.mul(nt.sub(1.0, nt.math('EXPONENT', nt.mul(cam.outputs['View Distance'], -1.0 / 9000.0))), 0.85)
+    co = nt.coords('Object')
+    # wind streaks / shimmer: long horizontal bands of slightly different ripple
+    sh = nt.noise(nt.vmath('MULTIPLY', co, (0.0008, 0.012, 0.0)), scale=1.0, detail=3)
+    rip = nt.noise(nt.vmath('MULTIPLY', co, (0.05, 0.4, 0.0)), scale=1.0, detail=2)
+    bump = nt.node('ShaderNodeBump', {'Height': nt.mul(rip, sh), 'Strength': 0.25, 'Distance': 1.0})
+    w = nt.node('ShaderNodeBsdfPrincipled', {'Base Color': (0.015, 0.035, 0.045), 'Roughness': nt.maprange(sh, 0.3, 0.7, 0.02, 0.12),
+                                           'IOR': 1.33, 'Normal': bump.outputs[0]})
     em = nt.node('ShaderNodeEmission', {'Color': (0.45, 0.58, 0.80), 'Strength': 0.9})
     mx = nt.node('ShaderNodeMixShader'); nt.set(mx.inputs[0], fac); nt.link(w, mx.inputs[1]); nt.link(em, mx.inputs[2])
     output(nt, mx)
@@ -848,10 +860,12 @@ def make_tree(name, base, height, seed, leafiness=0.0, bark=None, leaf_mat=None,
     if leafiness > 0 and leaf_mat:
         verts, faces, uvs, rnds = [], [], [], []
         for (p, d) in tips:
-            n = int(leafiness * rng.uniform(0.5, 1.5) * (1.6 if leafiness > 3 else 1.0))
+            if rng.random() > min(1.0, 0.18 * leafiness):
+                continue
+            n = rng.randint(1, 3)
             for k in range(n):
                 c = p - d * rng.uniform(0.0, 0.25) + Vector((rng.gauss(0, 0.04), rng.gauss(0, 0.04), rng.gauss(0, 0.04)))
-                s = rng.uniform(0.025, 0.05)
+                s = rng.uniform(0.018, 0.034)
                 ax = Vector((rng.gauss(0, 1), rng.gauss(0, 1), rng.gauss(0, 1))).normalized()
                 ay = ax.cross(Vector((0, 0, 1))).normalized()
                 if ay.length < 0.1:
@@ -936,8 +950,10 @@ def build_bridge(mat, y0=-24.0, width=1.7):
         top = deck(x)
         if sr <= x <= sl:
             bot = intrados(x)
+        elif x > sl:
+            bot = -2.5               # left abutment pier stands on the rock below
         else:
-            bot = top - 6.0          # abutment goes down into the rock
+            bot = top - 6.0          # right end goes into the slope
         # cross section: 4 corners (front-bot, front-top, back-top, back-bot) + parapet bump
         sec = [(x, y0 - width / 2, bot), (x, y0 - width / 2, top), (x, y0 - width / 2 + 0.25, top + 0.12),
                (x, y0 + width / 2 - 0.25, top + 0.12), (x, y0 + width / 2, top), (x, y0 + width / 2, bot)]
@@ -1081,6 +1097,14 @@ def main():
     ]
     for i, (loc, size, rz) in enumerate(bdefs):
         boulder('Boulder%02d' % i, loc, size, rz, seed=i * 3.1, mat=m_bould)
+    # right bank downstream (screen-right in the bridge view): smooth grey slabs and rounded boulders
+    bank = [((-2.3, -5.2, -0.05), (1.6, 1.2, 0.5), 2.2, 0.4), ((-1.5, -7.4, -0.15), (1.2, 1.0, 0.45), 0.8, 0.4),
+            ((-3.2, -8.8, -0.05), (1.9, 1.4, 0.5), 0.4, 0.35), ((-2.4, -12.4, -0.25), (1.5, 1.1, 0.45), 1.1, 0.35),
+            ((-3.6, -16.0, -0.25), (2.1, 1.5, 0.5), 2.0, 0.35), ((-2.8, -20.5, -0.5), (1.7, 1.2, 0.45), 0.7, 0.35),
+            ((-1.7, -9.8, -0.45), (0.7, 0.6, 0.55), 0.2, 0.7), ((-2.9, -14.3, -0.3), (0.9, 0.8, 0.7), 1.5, 0.7),
+            ((-2.0, -18.0, -0.65), (0.8, 0.7, 0.6), 2.6, 0.7), ((-4.2, -11.0, 0.1), (1.0, 0.9, 0.8), 0.9, 0.7)]
+    for i, (loc, size, rz, fl) in enumerate(bank):
+        boulder('BankRock%02d' % i, loc, size, rz, seed=40 + i * 2.3, mat=m_bould, flat=fl)
 
     # imported vegetation / log
     shrubs = import_gltf(os.path.join(A, 'shrub_04', 'shrub_04_2k.gltf'))
@@ -1216,8 +1240,8 @@ def main():
             if x > 3.5 and y < -5 and k == 0:
                 lean = (-0.45, 0.1)   # lean over the stream
             make_tree('Tree%02d_%d' % (i, k), loc - Vector((0, 0, 0.2)) + Vector((trng.gauss(0, 0.25), trng.gauss(0, 0.25), 0)),
-                      h * (1.0 if k == 0 else trng.uniform(0.6, 0.85)), sd * 10 + k, lf, m_bark, lm, lean=lean,
-                      max_depth=5 if (lm is m_bud and y < -4) else 4)
+                      h * (1.0 if k == 0 else trng.uniform(0.6, 0.85)), sd * 10 + k, lf * (0.28 if lm is m_leaf else 1.0), m_bark, lm, lean=lean,
+                      max_depth=5 if y < -4 else 4)
     # big bare tree on the -X bank arching over the stream: fills the sky above the bridge
     loc, nrm, ob = raycast((-3.7, -8.0, 60), (0, 0, -1), 200)
     if loc is not None:
@@ -1225,6 +1249,9 @@ def main():
 
     # bridge
     build_bridge(m_bridge)
+    # rock outcrop the left abutment rests on
+    boulder('AbutmentRock', (7.3, -24.0, 0.6), (3.2, 2.8, 4.2), 0.3, seed=91.0, mat=m_wall, flat=1.0)
+    boulder('AbutmentRock2', (5.9, -22.4, -0.4), (1.8, 1.6, 2.0), 1.2, seed=92.0, mat=m_wall, flat=0.9)
 
     # mist and atmosphere volumes
     bpy.ops.mesh.primitive_cube_add(size=1, location=(impact.x, impact.y + 0.3, 1.6))
@@ -1237,7 +1264,8 @@ def main():
 
     # distant world: valley slopes, lake, mountains
     m_far_forest = mat_distant('FarForest', (0.07, 0.07, 0.05), haze=(0.45, 0.56, 0.75), haze_dist=3500.0, emission=0.9)
-    m_mtn = mat_distant('Mountains', (0.06, 0.08, 0.10), haze=(0.40, 0.52, 0.75), haze_dist=14000.0, emission=0.9)
+    m_mtn = mat_distant('Mountains', (0.13, 0.13, 0.13), haze=(0.40, 0.52, 0.75), haze_dist=30000.0, emission=0.9, forest_top=650.0)
+    m_mtn2 = mat_distant('Mountains2', (0.08, 0.09, 0.11), haze=(0.48, 0.60, 0.82), haze_dist=26000.0, emission=0.9)
     m_lake = mat_lake()
     # valley below the gorge mouth
     vx = [-900 + 30 * i for i in range(61)]; vy = [-40 - 30 * j for j in range(60)]
@@ -1255,10 +1283,20 @@ def main():
     for y in my:
         for x in mx:
             ridge = 1 - abs(noise.noise(Vector((x * 0.00018, y * 0.00025, 2.0))))
-            peak = 1500 * ridge ** 2.2 + 300 * fbm(x * 0.0012, y * 0.0012, 4.0, 5)
+            peak = 1500 * ridge ** 2.2 + 300 * fbm(x * 0.0012, y * 0.0012, 4.0, 5) + 60 * fbm(x * 0.006, y * 0.006, 5.0, 3)
             z = -260 + peak * smoothstep(-7000, -9000, y)
             verts.append((x, y, z))
     mo = mesh_from_grid('Mountains', verts, len(mx), len(my)); mo.data.materials.append(m_mtn)
+    adaptive(mo, 3.0, 4)
+    # second, paler ridge further back
+    mx = [-20000 + 250 * i for i in range(161)]; my = [-15000 - 250 * j for j in range(40)]
+    verts = []
+    for y in my:
+        for x in mx:
+            ridge = 1 - abs(noise.noise(Vector((x * 0.00011, y * 0.0002, 7.0))))
+            z = -260 + (3600 * ridge ** 2.0 + 300 * fbm(x * 0.0008, y * 0.0008, 9.0, 4)) * smoothstep(-15000, -17000, y)
+            verts.append((x, y, z))
+    mo2 = mesh_from_grid('Mountains2', verts, len(mx), len(my)); mo2.data.materials.append(m_mtn2)
 
     # sun and sky
     w = bpy.data.worlds.new('Sky'); scn.world = w

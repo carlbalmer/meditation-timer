@@ -63,10 +63,11 @@
 
       <section class="running" aria-label="Session in progress">
         <div class="countdown" role="timer">
+          <button class="reveal" type="button" aria-label="Show controls" aria-controls="session-actions" aria-expanded="false"></button>
           <svg class="ring" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="56" pathLength="1000" /></svg>
           <span class="clock"></span>
         </div>
-        <div class="actions">
+        <div class="actions" id="session-actions">
           <button class="icon skip" type="button" aria-label="Skip warm-up">
             <svg viewBox="0 0 24 24"><path d="m6.5 7 5 5-5 5M12.5 7l5 5-5 5" /></svg>
           </button>
