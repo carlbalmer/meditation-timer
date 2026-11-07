@@ -57,5 +57,5 @@ Never edit a `.sh` that a running job is executing (bash reads scripts increment
 | plate 1080×2400 @384 spp | waterfall ~7.5 min, bridge ~4–5 min |
 | water frame 540×1200 @64 spp | waterfall ~21 s, bridge ~15 s (192 frames: ~68 / ~48 min) |
 | composite 192 frames (CPU) | ~4–5 min |
-| turn frame 540×1200 @64 spp + motion blur | see final report |
+| turn frame 540×1200 @64 spp + motion blur | ~25 s (60 frames: ~26 min per clip) |
 | encode (host) | ~30 s per loop |
