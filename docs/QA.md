@@ -54,8 +54,23 @@ the page was back on the setup screen after waking. Keep-alive median block leve
 - Headless: "Show controls" is the only control exposed while running; Tab reveals, controls
   stay while focused, hide 4 s after focus leaves; a tap still auto-hides.
 
+## Installed home-screen app, 20-minute session (phone)
+Installed via Vanadium "Install app" (opens as a standalone `WebappActivity`). 20 min, 15 s
+warm-up, **water on**, `himalayan`. Started with a real tap; screen off, `dumpsys battery unplug`,
+`dumpsys deviceidle force-idle` for 21.5 min. A test-only AudioWorklet meter (injected over the
+DevTools protocol, not part of the app) logged one-shot source scheduling and the first rendered
+samples:
+
+| Gong | Scheduled (audio clock) | Rendered |
+| --- | --- | --- |
+| Opening | 15.557 s | 15.557 s |
+| Closing | 1215.557 s | 1215.557 s |
+
+The app was back on the setup screen after waking. The audio clock ran 1.05 s behind wall time
+over the 21.5 min (≈0.08 %), so the closing gong sounds about a second after the countdown's
+wall-clock end: harmless, noted.
+
 ## Not yet verified
 - Real camera-turn clips and the bridge loop (not delivered yet; tested with generated clips).
-- Installed home-screen PWA (all checks ran in a browser tab).
 - Real tilt on the phone (Vanadium blocks motion sensors by default; synthetic events only).
 - A 20-minute session.
