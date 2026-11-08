@@ -1,21 +1,14 @@
 # Audio credits
 
-All files are encoded twice: `.webm` (Opus) and `.m4a` (AAC). Rebuild with `tools/audio/build.sh`
-(see `tools/audio/README.md`). Sounds from Freesound were taken as the public HQ preview
+The bowls are played from `session/<file>.mp3` (shortened to at most 45 s, −6 dB, over an inaudible
+low-frequency bed; see `tools/audio/README.md`). Rebuild with `tools/audio/build.sh`. Sounds from Freesound were taken as the public HQ preview
 (128 kbps MP3), since the original files need a Freesound login — a quality limit, not a licence one.
-
-## Water ambience
-
-| file | title | author | source | licence | processing |
-| --- | --- | --- | --- | --- | --- |
-| `water/waterfall` | Kamjanka Waterfall - Carpathian mountains.wav (recorded 2014-05-19) | Lubini | https://freesound.org/s/352846/ | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 100 s window from 0 s, 35 Hz highpass, last 10 s crossfaded (equal-power) into the first 10 s to make a 90 s seamless loop, 48 kHz stereo, −1.3 dB gain to −24 LUFS, Opus 96k / AAC 128k |
-| `water/bridge` | Kervijen babbling creek .wav (Marais de Kervijen, Brittany, June 2023) | bruno.auzet | https://freesound.org/s/690325/ | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | 100 s window from 142 s, 50 Hz highpass, equal-power crossfade into a 90 s seamless loop, 48 kHz stereo, +5.3 dB gain to −24 LUFS with a look-ahead limiter on the loudest splashes (true peak ≤ −2 dBTP), Opus 96k / AAC 128k |
 
 ## Bowls
 
 | file | title | author | source | licence | processing |
 | --- | --- | --- | --- | --- | --- |
-| `bowls/himalayan` | Sound-Bowl-foot-left--B2.wav | Cpt_Asteroid | https://freesound.org/s/138666/ | **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)** (non-commercial) | leading silence trimmed (strike at ~4 ms), 48 kHz mono, 20 Hz highpass, 1.5 s end fade, loudness-matched (max momentary −11.3 LUFS), peak ≤ −1.3 dBFS, Opus 64k / AAC 96k |
+| `bowls/himalayan` | Sound-Bowl-foot-left--B2.wav | Cpt_Asteroid | https://freesound.org/s/138666/ | **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)** (non-commercial) | leading silence trimmed (strike at ~4 ms), 48 kHz mono, 20 Hz highpass, 1.5 s end fade, loudness-matched (max momentary −11.3 LUFS), peak ≤ −1.3 dBFS |
 | `bowls/resonant` | Sound-Bowl-belly--A2.wav | Cpt_Asteroid | https://freesound.org/s/138667/ | **CC BY-NC 4.0** | as above |
 | `bowls/bright` | Sound-Bowl-head-top--A3.wav | Cpt_Asteroid | https://freesound.org/s/138670/ | **CC BY-NC 4.0** | as above |
 | `bowls/deep` | Sound-Bowl-heart--C#2.wav | Cpt_Asteroid | https://freesound.org/s/138675/ | **CC BY-NC 4.0** | as above, 2 s end fade |

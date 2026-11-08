@@ -1,0 +1,37 @@
+{
+  "frameBytes": 192,
+  "frameSeconds": 0.024,
+  "bed": {
+    "frames": 501
+  },
+  "gongs": {
+    "himalayan": {
+      "frames": 1876,
+      "onset": 0.0269
+    },
+    "resonant": {
+      "frames": 1260,
+      "onset": 0.0269
+    },
+    "bright": {
+      "frames": 809,
+      "onset": 0.0289
+    },
+    "deep": {
+      "frames": 1876,
+      "onset": 0.027
+    },
+    "tingsha": {
+      "frames": 612,
+      "onset": 0.027
+    },
+    "warm": {
+      "frames": 1335,
+      "onset": 0.2891
+    },
+    "soft": {
+      "frames": 1251,
+      "onset": 0.027
+    }
+  }
+}

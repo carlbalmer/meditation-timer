@@ -1,3 +1,5 @@
 .env
-node_modules/
+node_modules
 dist/
+tools/mic-recorder/out/
+tools/mic-recorder/debug.keystore

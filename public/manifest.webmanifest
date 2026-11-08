@@ -1,14 +1,14 @@
 {
   "name": "Meditation",
   "short_name": "Meditation",
-  "description": "A meditation timer set in a mountain gorge.",
+  "description": "A simple meditation timer with singing bowls.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0b1113",
-  "theme_color": "#0b1113",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },

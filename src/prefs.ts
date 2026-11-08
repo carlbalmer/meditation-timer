@@ -1,26 +1,39 @@
-import { clampMinutes, WARMUPS } from './session.ts';
+export const WARMUPS = [0, 15, 30, 45, 60] as const;
+export const MIN_MINUTES = 1;
+export const MAX_MINUTES = 90;
 
-export type Prefs = { minutes: number; warmup: number; water: boolean; bowl: string; scene: string };
+export interface Prefs {
+  minutes: number;
+  warmup: number;
+  bowl: string;
+}
 
-export const DEFAULTS: Prefs = { minutes: 12, warmup: 15, water: true, bowl: 'himalayan', scene: 'waterfall' };
-const KEY = 'meditation-prefs-v2';
+const KEY = 'meditation-timer';
 
-export function parsePrefs(raw: string | null): Prefs {
-  let saved: Partial<Record<keyof Prefs, unknown>> = {};
-  try { saved = JSON.parse(raw ?? '{}') ?? {}; } catch { /* corrupt storage falls back to defaults */ }
+export function parsePrefs(raw: string | null, bowls: readonly string[]): Prefs {
+  const fallback: Prefs = { minutes: 12, warmup: 15, bowl: bowls[0] };
+  let stored: Partial<Prefs> = {};
+  try {
+    stored = JSON.parse(raw ?? '{}') ?? {};
+  } catch {}
+  const minutes = Number(stored.minutes);
   return {
-    minutes: typeof saved.minutes === 'number' && Number.isFinite(saved.minutes) ? clampMinutes(saved.minutes) : DEFAULTS.minutes,
-    warmup: WARMUPS.includes(saved.warmup as number) ? saved.warmup as number : DEFAULTS.warmup,
-    water: typeof saved.water === 'boolean' ? saved.water : DEFAULTS.water,
-    bowl: typeof saved.bowl === 'string' ? saved.bowl : DEFAULTS.bowl,
-    scene: typeof saved.scene === 'string' ? saved.scene : DEFAULTS.scene,
+    minutes: Number.isInteger(minutes) && minutes >= MIN_MINUTES && minutes <= MAX_MINUTES ? minutes : fallback.minutes,
+    warmup: WARMUPS.includes(stored.warmup as never) ? (stored.warmup as number) : fallback.warmup,
+    bowl: bowls.includes(stored.bowl as string) ? (stored.bowl as string) : fallback.bowl,
   };
 }
 
-export function loadPrefs(): Prefs {
-  try { return parsePrefs(localStorage.getItem(KEY)); } catch { return { ...DEFAULTS }; }
+export function loadPrefs(bowls: readonly string[]): Prefs {
+  try {
+    return parsePrefs(localStorage.getItem(KEY), bowls);
+  } catch {
+    return parsePrefs(null, bowls);
+  }
 }
 
-export function savePrefs(prefs: Prefs) {
-  try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch { /* storage is optional */ }
+export function savePrefs(prefs: Prefs): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(prefs));
+  } catch {}
 }

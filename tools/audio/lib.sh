@@ -13,8 +13,3 @@ loud_stats() {
   "$FFMPEG" -nostats -hide_banner -i "$1" -af ebur128=peak=true -f null - 2>&1 |
     awk '/Summary/{s=1} s&&/^ *I:/{i=$2} s&&/Peak:/{p=$2} END{print i, p}'
 }
-# encode a wav to webm (Opus) and m4a (AAC): enc <in.wav> <outbase> <opus_kbps> <aac_kbps>
-enc() {
-  "$FFMPEG" -v error -y -i "$1" -c:a libopus -b:a "${3}k" -vbr on -application audio -f webm "$2.webm"
-  "$FFMPEG" -v error -y -i "$1" -c:a aac -b:a "${4}k" -movflags +faststart -f mp4 "$2.m4a"
-}

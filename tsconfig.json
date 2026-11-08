@@ -16,12 +16,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "allowImportingTsExtensions": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "resolveJsonModule": true
   },
   "include": [
     "src"
   ],
   "exclude": [
-    "src/sw/worker.ts"
+    "src/sw.ts"
   ]
 }

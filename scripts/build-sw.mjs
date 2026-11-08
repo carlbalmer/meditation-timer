@@ -1,30 +1,26 @@
-// Bundles src/sw/worker.ts into dist/sw.js with this build's file lists: the
-// shell to precache, and the versioned scene and audio files to cache later.
+// Bundles src/sw.ts into dist/sw.js with the list of built files and a version hash of their contents.
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
-import { mediaVersions, MEDIA_DIRS } from './media.mjs';
 
 const entries = await readdir('dist', { recursive: true, withFileTypes: true });
 const files = entries
   .filter(entry => entry.isFile())
   .map(entry => `${entry.parentPath}/${entry.name}`.slice('dist/'.length))
-  .filter(path => path !== 'sw.js' && !MEDIA_DIRS.some(dir => path.startsWith(`${dir}/`)))
+  .filter(path => path !== 'sw.js' && !path.endsWith('.md'))
   .sort();
-const shell = ['./', ...files.filter(path => path !== 'index.html')];
-const media = Object.entries(await mediaVersions('dist')).map(([path, version]) => `${path}?v=${version}`);
 
 const hash = createHash('sha256');
-for (const path of files) hash.update(await readFile(`dist/${path}`));
-hash.update(media.join());
+for (const path of files) hash.update(path).update(await readFile(`dist/${path}`));
 const version = hash.digest('hex').slice(0, 12);
+const urls = ['./', ...files.filter(path => path !== 'index.html')];
 
 await build({
-  entryPoints: ['src/sw/worker.ts'],
+  entryPoints: ['src/sw.ts'],
   outfile: 'dist/sw.js',
   bundle: true,
   format: 'iife',
   target: 'es2022',
-  define: { __VERSION__: JSON.stringify(version), __SHELL__: JSON.stringify(shell), __MEDIA__: JSON.stringify(media) },
+  define: { __VERSION__: JSON.stringify(version), __FILES__: JSON.stringify(urls) },
 });
-console.log(`sw.js ${version}: ${shell.length} shell files, ${media.length} media files`);
+console.log(`sw.js ${version}: ${urls.length} files`);

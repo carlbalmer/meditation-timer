@@ -1,201 +1,281 @@
 import './style.css';
-import { bowls, credits, offlineUrls, SCENES, water } from './assets.ts';
-import { AudioEngine } from './audio.ts';
-import { clearSession, showSession } from './media-session.ts';
-import { loadPrefs, savePrefs, type Prefs } from './prefs.ts';
-import { Scene } from './scene/scene.ts';
-import { cancel, clampMinutes, cues, end, nextWarmup, phaseAt, skip, span, start, type Phase, type Session } from './session.ts';
-import { createUi } from './ui.ts';
+import sounds from './sounds.json';
+import { buildTrack, planTrack, type Plan } from './track.ts';
+import { clock, status } from './session.ts';
+import { loadPrefs, MAX_MINUTES, MIN_MINUTES, savePrefs, WARMUPS } from './prefs.ts';
 
-const BED_TAIL_MS = 4000;
-const TYPE_CREDITS = `## Type
-| title | author | licence | source |
-| --- | --- | --- | --- |
-| Cormorant Garamond | Christian Thalmann | SIL Open Font License 1.1 | https://github.com/CatharsisFonts/Cormorant |`;
-const REST_AFTER_MS = 20_000;
-const LOAD_TIMEOUT_MS = 4000;
+const NAMES: Record<string, string> = {
+  himalayan: 'Himalayan',
+  resonant: 'Resonant',
+  bright: 'Bright',
+  deep: 'Deep',
+  tingsha: 'Tingsha',
+  warm: 'Warm',
+  soft: 'Soft',
+};
+const gongs: Record<string, { frames: number; onset: number }> = sounds.gongs;
+const BOWLS = Object.keys(NAMES).filter(id => id in gongs);
+const BASE = import.meta.env.BASE_URL;
 
-const within = <T>(promise: Promise<T | null>, ms: number) =>
-  Promise.race([promise, new Promise<null>(resolve => setTimeout(resolve, ms, null))]);
-const active = () => shown === 'warmup' || shown === 'meditation';
-// Busy from Start until the closing gong has rung out.
-const busy = () => starting || active() || !audio.idle;
+const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const minutesOut = el<HTMLOutputElement>('minutes');
+const startButton = el<HTMLButtonElement>('start');
+const message = el('message');
+const phaseLabel = el('phase');
+const countdown = el('countdown');
 
-const prefs = loadPrefs();
-if (!SCENES.includes(prefs.scene)) prefs.scene = SCENES[0];
-let bowlIndex = Math.max(0, bowls.findIndex(bowl => bowl.id === prefs.bowl));
+const prefs = loadPrefs(BOWLS);
 
-const audio = new AudioEngine();
-const scene = new Scene(document.querySelector('.scene')!);
+// ---- sound files ---------------------------------------------------------------------------
+
+const files = new Map<string, Promise<Uint8Array>>();
+function load(name: string): Promise<Uint8Array> {
+  let file = files.get(name);
+  if (!file) {
+    file = fetch(`${BASE}audio/session/${name}.mp3`)
+      .then(response => {
+        if (!response.ok) throw new Error(`${name}.mp3: HTTP ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(buffer => new Uint8Array(buffer));
+    file.catch(() => files.delete(name));
+    files.set(name, file);
+  }
+  return file;
+}
+
+/** One gong on its own: the preview when picking a bowl, and the gong after Cancel. */
+let single: { audio: HTMLAudioElement; url: string } | null = null;
+function stopSingle(): void {
+  if (!single) return;
+  single.audio.pause();
+  URL.revokeObjectURL(single.url);
+  single = null;
+}
+async function ringOnce(bowl: string): Promise<void> {
+  stopSingle();
+  const bytes = await load(bowl);
+  stopSingle();
+  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'audio/mpeg' }));
+  const audio = new Audio(url);
+  const mine = (single = { audio, url });
+  audio.addEventListener('ended', () => single === mine && stopSingle());
+  await audio.play().catch(() => {});
+}
+
+// ---- session -------------------------------------------------------------------------------
+
+interface Session {
+  audio: HTMLAudioElement;
+  url: string;
+  plan: Plan;
+  /** the closing gong has sounded; the track is only ringing out */
+  finished: boolean;
+}
 let session: Session | null = null;
-let sessionCount = 0;
-let shown: Phase = 'idle';
-let starting = false;
-let repaint = 0;
-let restTimer = 0;
-let reloadPending = false;
 
-const ui = createUi({
-  minutes: value => change({ minutes: clampMinutes(value) }),
-  warmup: () => change({ warmup: nextWarmup(prefs.warmup) }),
-  water: () => {
-    change({ water: !prefs.water });
-    if (prefs.water) void audio.previewWater(water(prefs.scene));
-    else audio.stopPreview();
-    restSoon();
-  },
-  bowl: () => {
-    if (bowls.length) bowlIndex = (bowlIndex + 1) % bowls.length;
-    change({ bowl: bowls[bowlIndex]?.id ?? '' });
-    ui.chime();
-    void audio.previewBowl(bowls[bowlIndex]?.url ?? null);
-    restSoon();
-  },
-  scene: target => {
-    if (active()) return;
-    const index = SCENES.indexOf(prefs.scene);
-    const id = typeof target === 'string' ? target : SCENES[(index + target + SCENES.length) % SCENES.length];
-    if (id === prefs.scene) return;
-    change({ scene: id });
-    scene.turn(id);
-  },
-  start: beginSession,
-  skip: () => act(skip),
-  cancel: () => act(cancel),
-  end: () => act(end),
-  credits: async () => {
-    const url = credits();
-    const sounds = url ? await fetch(url).then(r => (r.ok ? r.text() : ''), () => '') : '';
-    return `${sounds}\n\n${TYPE_CREDITS}`;
-  },
-});
-
-function change(patch: Partial<Prefs>) {
-  Object.assign(prefs, patch);
-  savePrefs(prefs);
-  ui.renderSetup(prefs, bowlIndex, bowls.length);
-}
-
-async function beginSession() {
-  if (starting || active()) return;
-  starting = true;
-  clearTimeout(restTimer);
-  audio.stopPreview();
-  const committed = (await audio.unlock()) && (await prepareSession());
-  starting = false;
-  if (!committed) {
-    audio.sync([], null);
-    ui.refuse();
-  }
-  update();
-}
-
-// The keep-alive bed runs from the moment audio is unlocked, so the context
-// cannot idle while sounds decode; slow loads fall back to a stand-in bowl and
-// no water. The session only starts once the context is confirmed running.
-async function prepareSession() {
-  audio.startBed();
-  const [gong, bed] = await Promise.all([
-    within(audio.load(bowls[bowlIndex]?.url ?? null), LOAD_TIMEOUT_MS),
-    prefs.water ? within(audio.load(water(prefs.scene)), LOAD_TIMEOUT_MS) : null,
-  ]);
-  audio.setGong(gong);
-  audio.setWater(bed);
-  if (!(await audio.unlock())) return false;
-  session = start(++sessionCount, prefs, Date.now());
-  return true;
-}
-
-function act(action: (s: Session | null, now: number) => Session | null) {
-  session = action(session, Date.now());
-  update();
-}
-
-// Reconciles audio with the session and repaints. Safe to call at any time,
-// any number of times: page timers only ever trigger this.
-function update() {
-  const now = Date.now();
-  const phase = phaseAt(session, now);
-  const current = span(session, now);
-  if (!starting) audio.sync(cues(session), session ? session.closeAt + BED_TAIL_MS : null);
-  if (phase !== shown) transition(shown, phase, current);
-  shown = phase;
-  clearTimeout(repaint);
-  if (!current) return;
-  const [from, to] = current;
-  ui.renderClock(phase, to - now, (to - now) / (to - from));
-  repaint = window.setTimeout(update, ((to - now) % 1000) + 20);
-}
-
-function transition(from: Phase, to: Phase, current: [number, number] | null) {
-  ui.setPhase(to);
-  scene.setDensity(current ? 'session' : 'setup');
-  if (current) showSession('Meditation', scene.poster, current[0], current[1], () => act(end));
-  else if (from === 'warmup' || from === 'meditation') {
-    clearSession();
-    restSoon();
-  }
-}
-
-function restSoon() {
-  clearTimeout(restTimer);
-  restTimer = window.setTimeout(() => {
-    if (busy()) restSoon();
-    else if (reloadPending) location.reload();
-    else audio.rest();
-  }, REST_AFTER_MS);
-}
-
-audio.onStateChange = update;
-
-// If the context could not resume during a session (say, after an audio
-// interruption), every visit and touch retries; stale gongs are dropped.
-document.addEventListener('visibilitychange', () => {
-  const visible = document.visibilityState === 'visible';
-  scene.setVisible(visible);
-  if (visible && active()) void audio.unlock();
-  update();
-});
-
-// Any touch unlocks audio; on the setup screen it also decodes what Start needs.
-addEventListener('pointerdown', async () => {
-  if (!(await audio.unlock()) || active() || starting) return;
-  void audio.load(bowls[bowlIndex]?.url ?? null);
-  if (prefs.water) void audio.load(water(prefs.scene));
-  restSoon();
-}, { capture: true });
-
-ui.renderSetup(prefs, bowlIndex, bowls.length);
-ui.setPhase('idle');
-void scene.show(prefs.scene);
-
-// Updates never interrupt a session: the waiting worker asks every window
-// whether it is busy before taking over, and a page that is busy anyway when
-// the new worker arrives reloads only once it is idle again.
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  const sw = navigator.serviceWorker;
-  sw.addEventListener('message', event => {
-    if (event.data?.query === 'busy') event.ports[0]?.postMessage({ busy: busy() });
-  });
-  sw.startMessages();
-  addEventListener('load', async () => {
-    const hadController = !!sw.controller;
-    const registration = await sw.register(`${import.meta.env.BASE_URL}sw.js`);
-    sw.addEventListener('controllerchange', () => {
-      if (!hadController) return;
-      if (busy()) reloadPending = true;
-      else location.reload();
+async function start(): Promise<void> {
+  if (session && !session.finished) return;
+  if (session) dispose(session);
+  stopSingle();
+  startButton.disabled = true;
+  message.textContent = '';
+  let started: Session | null = null;
+  try {
+    const [bed, gong] = await Promise.all([load('bed'), load(prefs.bowl)]);
+    const plan = planTrack(prefs.warmup, prefs.minutes * 60, gongs[prefs.bowl]);
+    const url = URL.createObjectURL(buildTrack(plan, bed, gong));
+    const audio = new Audio(url);
+    started = session = { audio, url, plan, finished: false };
+    const mine = started;
+    for (const event of ['play', 'pause', 'timeupdate']) audio.addEventListener(event, () => session === mine && render());
+    audio.addEventListener('ended', () => session === mine && dispose(mine));
+    audio.addEventListener('error', () => {
+      if (session !== mine) return;
+      dispose(mine);
+      message.textContent = 'The session audio failed to play.';
     });
-    const applyUpdate = () => registration.waiting?.postMessage({ activate: true });
-    const applyUpdateWhenHidden = () => {
-      if (document.visibilityState !== 'hidden' || busy()) return;
-      if (reloadPending) location.reload();
-      else applyUpdate();
-    };
-    applyUpdate();
-    registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', applyUpdateWhenHidden));
-    document.addEventListener('visibilitychange', applyUpdateWhenHidden);
-    await sw.ready;
-    requestIdleCallback(() => registration.active?.postMessage({ cache: offlineUrls() }), { timeout: 10_000 });
+    await audio.play();
+    showInMediaSession(plan);
+    void keepAwake(true);
+  } catch (error) {
+    if (started && session === started) dispose(started);
+    message.textContent = `Couldn't start: ${error instanceof Error ? error.message : error}`;
+  } finally {
+    startButton.disabled = false;
+    render();
+  }
+}
+
+function cancel(): void {
+  if (!session || session.finished) return;
+  dispose(session);
+  void ringOnce(prefs.bowl);
+  render();
+}
+
+function dispose(s: Session): void {
+  s.audio.pause();
+  s.audio.removeAttribute('src');
+  s.audio.load();
+  URL.revokeObjectURL(s.url);
+  if (session !== s) return;
+  session = null;
+  void keepAwake(false);
+  showInMediaSession(null);
+}
+
+/** Everything on screen comes from the track position, so it is right the moment the screen comes back on. */
+function render(): void {
+  const s = session;
+  if (!s || s.finished) {
+    document.body.dataset.ui = 'setup';
+    return;
+  }
+  const { phase, remaining } = status(s.audio.currentTime, s.plan);
+  if (phase === 'done') {
+    s.finished = true; // the closing gong rings out; the setup comes back meanwhile
+    void keepAwake(false);
+    document.body.dataset.ui = 'setup';
+    return;
+  }
+  document.body.dataset.ui = s.audio.paused ? 'paused' : 'running';
+  phaseLabel.textContent = s.audio.paused ? 'paused' : phase === 'warmup' ? 'warm-up' : '';
+  countdown.textContent = clock(remaining);
+  updatePosition(s);
+}
+
+setInterval(() => session && render(), 250);
+document.addEventListener('visibilitychange', () => {
+  render();
+  if (session && !session.finished) void keepAwake(true); // the browser drops the wake lock when the page is hidden
+});
+
+// ---- screen wake lock ----------------------------------------------------------------------
+
+let lock: WakeLockSentinel | null = null;
+let wantLock = false;
+let requesting = false;
+async function keepAwake(on: boolean): Promise<void> {
+  wantLock = on;
+  if (!on) {
+    const held = lock;
+    lock = null;
+    await held?.release().catch(() => {});
+    return;
+  }
+  if (lock || requesting || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+  requesting = true;
+  try {
+    const sentinel = await navigator.wakeLock.request('screen');
+    if (!wantLock) {
+      await sentinel.release();
+      return;
+    }
+    lock = sentinel;
+    sentinel.addEventListener('release', () => lock === sentinel && (lock = null));
+  } catch {
+    // denied (battery saver, unsupported): the audio track keeps the time anyway
+  } finally {
+    requesting = false;
+  }
+}
+
+// ---- media session (lock screen / notification) --------------------------------------------
+
+let lastPosition = { paused: true, at: -1 };
+function showInMediaSession(plan: Plan | null): void {
+  if (!('mediaSession' in navigator)) return;
+  const media = navigator.mediaSession;
+  if (!plan) {
+    media.metadata = null;
+    media.playbackState = 'none';
+    return;
+  }
+  lastPosition = { paused: true, at: -1 };
+  media.metadata = new MediaMetadata({
+    title: 'Meditation',
+    artist: `${prefs.minutes} min${prefs.warmup ? ` · warm-up ${prefs.warmup} s` : ''}`,
+    artwork: [{ src: `${BASE}icon-512.png`, sizes: '512x512', type: 'image/png' }],
   });
+}
+
+function updatePosition(s: Session): void {
+  if (!('mediaSession' in navigator)) return;
+  const paused = s.audio.paused;
+  const position = Math.min(s.audio.currentTime, s.plan.duration);
+  if (paused === lastPosition.paused && Math.abs(position - lastPosition.at) < 5) return;
+  lastPosition = { paused, at: position };
+  navigator.mediaSession.playbackState = paused ? 'paused' : 'playing';
+  try {
+    navigator.mediaSession.setPositionState({ duration: s.plan.duration, position, playbackRate: 1 });
+  } catch {}
+}
+
+if ('mediaSession' in navigator) {
+  const handlers: [MediaSessionAction, MediaSessionActionHandler | null][] = [
+    ['play', () => void session?.audio.play().catch(() => {})],
+    ['pause', () => session?.audio.pause()],
+    ['stop', cancel],
+    ['seekto', null],
+    ['seekbackward', null],
+    ['seekforward', null],
+    ['previoustrack', null],
+    ['nexttrack', null],
+  ];
+  for (const [action, handler] of handlers) {
+    try {
+      navigator.mediaSession.setActionHandler(action, handler);
+    } catch {}
+  }
+}
+
+// ---- setup controls ------------------------------------------------------------------------
+
+function chip(label: string, data: Record<string, string>): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  Object.assign(button.dataset, data);
+  return button;
+}
+el('warmups').append(...WARMUPS.map(s => chip(s ? `${s} s` : 'off', { warmup: String(s) })));
+el('bowls').append(...BOWLS.map(id => chip(NAMES[id], { bowl: id })));
+
+function showPrefs(): void {
+  minutesOut.value = String(prefs.minutes);
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-minutes]')) b.ariaPressed = String(Number(b.dataset.minutes) === prefs.minutes);
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-warmup]')) b.ariaPressed = String(Number(b.dataset.warmup) === prefs.warmup);
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-bowl]')) b.ariaPressed = String(b.dataset.bowl === prefs.bowl);
+}
+function change(update: Partial<typeof prefs>): void {
+  Object.assign(prefs, update);
+  prefs.minutes = Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, prefs.minutes));
+  savePrefs(prefs);
+  showPrefs();
+}
+
+document.querySelector('.setup')!.addEventListener('click', event => {
+  const button = (event.target as HTMLElement).closest('button');
+  if (!button) return;
+  const { step, minutes, warmup, bowl } = button.dataset;
+  if (step) change({ minutes: prefs.minutes + Number(step) });
+  if (minutes) change({ minutes: Number(minutes) });
+  if (warmup) change({ warmup: Number(warmup) });
+  if (bowl) {
+    change({ bowl });
+    void ringOnce(bowl);
+  }
+});
+startButton.addEventListener('click', () => void start());
+el('cancel').addEventListener('click', cancel);
+el('resume').addEventListener('click', () => void session?.audio.play().catch(() => {}));
+
+showPrefs();
+render();
+void load('bed');
+void load(prefs.bowl);
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  void navigator.serviceWorker.register(`${BASE}sw.js`).catch(() => {});
 }
