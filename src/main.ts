@@ -297,6 +297,7 @@ startButton.addEventListener('click', () => void start());
 el('cancel').addEventListener('click', cancel);
 el('resume').addEventListener('click', () => void session?.audio.play().catch(() => {}));
 
+el('build').textContent = `Build ${__BUILD__} UTC`;
 showPrefs();
 render();
 void load('bed');
@@ -319,5 +320,10 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     updated = true;
     reloadIfUpdated();
   });
-  void navigator.serviceWorker.register(`${BASE}sw.js`).catch(() => {});
+  const registration = navigator.serviceWorker.register(`${BASE}sw.js`);
+  registration.catch(() => {});
+  // an installed app may stay open for days: look for a new version whenever it comes back while idle
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !session) void registration.then(r => r.update()).catch(() => {});
+  });
 }
