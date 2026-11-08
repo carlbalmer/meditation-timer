@@ -33,13 +33,12 @@ npm run dev      # http://localhost:5173/meditation-timer/
 npm test         # track layout, session status, prefs (node --test)
 npm run build    # typecheck, build to dist/, generate the service worker
 npm run preview  # serve dist/ (offline use, service worker)
-npm run build:tailnet  # build for https://fury.<tailnet>.ts.net:10443/meditation-simple/
 ```
 
-The tailnet copy is served by the user service `meditation-simple-preview` (`vite preview` of
-`dist-tailnet/` on 127.0.0.1:4191, at the root because `tailscale serve --set-path` strips the
-mount path); `npm run build:tailnet` updates it, and an installed app picks the new version up
-the next time it is opened while idle.
+The tailnet copy (`https://fury.<tailnet>.ts.net:10443/meditation-timer/`, via `tailscale serve`
+→ 127.0.0.1:4180) is the user service `meditation-preview`, a `vite preview` of this checkout's
+`dist/`: `npm run build` updates it, and an installed app picks the new version up the next time
+it is opened while idle.
 
 On a phone over USB: `adb reverse tcp:5173 tcp:5173`, then open the dev URL (localhost is a
 secure context, so the wake lock and service worker work).
