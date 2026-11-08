@@ -36,7 +36,7 @@ position and wall clock was measurable (the v2 Web Audio clock drifted ~1 s in 2
 - The session appears as a media session ("Meditation", "8 min · warm-up 15 s", PLAYING).
 - `cmd media_session dispatch pause` (what a call, another app or the lock-screen button does):
   countdown froze, "paused" + Resume shown; Resume continued from the same position.
-- Another app taking audio focus (a laulo playback, by accident) paused the session the same way.
+- Another app starting playback (taking audio focus) paused the session the same way.
 - Cancel during warm-up: setup screen, **one gong 0.35 s after the tap**.
 - Update: a new build was picked up when the idle app came back to the foreground, without
   restarting it (build stamp in "Sound credits").
