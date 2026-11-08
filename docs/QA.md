@@ -41,6 +41,17 @@ position and wall clock was measurable (the v2 Web Audio clock drifted ~1 s in 2
 - Update: a new build was picked up when the idle app came back to the foreground, without
   restarting it (build stamp in "Sound credits").
 
+### Loading (Brave tab, logging test server, fresh origin)
+
+- First visit: each of the 8 audio files downloaded **once** (page loads them and stores them
+  in the offline audio cache; the service worker no longer precaches audio). Shell files
+  (≈30 KB) still come twice (page + precache).
+- Second visit: no request except the service worker's update check.
+- Audio delayed by 8 s: Start and the gong buttons are dimmed; tapping Start shows "Loading
+  sounds…" and starts nothing; the note clears and Start lights up once the rumble and the
+  selected gong are in memory. Start then plays synchronously within the tap.
+- Update with unchanged audio: only the shell (≈30 KB) is downloaded.
+
 ## Not covered yet
 
 - A real lock by the power button on a really unplugged phone, without adb. In particular

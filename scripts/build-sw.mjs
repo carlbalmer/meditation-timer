@@ -1,4 +1,4 @@
-// Bundles src/sw.ts into dist/sw.js with the list of built files and a version hash of their contents.
+// Bundles src/sw.ts into dist/sw.js with the lists of built files and a version hash of their contents.
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
@@ -14,7 +14,8 @@ const files = entries
 const hash = createHash('sha256');
 for (const path of files) hash.update(path).update(await readFile(`${OUT}/${path}`));
 const version = hash.digest('hex').slice(0, 12);
-const urls = ['./', ...files.filter(path => path !== 'index.html')];
+const audio = files.filter(path => path.endsWith('.mp3')); // cached by the page as it loads them
+const urls = ['./', ...files.filter(path => path !== 'index.html' && !path.endsWith('.mp3'))];
 
 await build({
   entryPoints: ['src/sw.ts'],
@@ -22,6 +23,6 @@ await build({
   bundle: true,
   format: 'iife',
   target: 'es2022',
-  define: { __VERSION__: JSON.stringify(version), __FILES__: JSON.stringify(urls) },
+  define: { __VERSION__: JSON.stringify(version), __FILES__: JSON.stringify(urls), __AUDIO__: JSON.stringify(audio) },
 });
-console.log(`sw.js ${version}: ${urls.length} files`);
+console.log(`sw.js ${version}: ${urls.length} shell files, ${audio.length} audio files`);

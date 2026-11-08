@@ -3,6 +3,7 @@ import sounds from './sounds.json';
 import { buildTrack, planTrack, type Plan } from './track.ts';
 import { clock, status } from './session.ts';
 import { loadPrefs, MAX_MINUTES, MIN_MINUTES, savePrefs, WARMUPS } from './prefs.ts';
+import { audioCacheName } from './caches.ts';
 
 const NAMES: Record<string, string> = {
   himalayan: 'Himalayan',
@@ -34,38 +35,69 @@ const countdown = el('countdown');
 const prefs = loadPrefs(BOWLS);
 
 // ---- sound files ---------------------------------------------------------------------------
+// Every sound is loaded into memory when the page opens, so a tap can build and play at once:
+// iOS only lets a page start sound within a few seconds of a tap. A button whose sound isn't in
+// memory yet looks disabled. Each file comes from the offline audio cache, or from the network
+// once, and is then stored in that cache (src/caches.ts).
 
-const files = new Map<string, Promise<Uint8Array>>();
-function load(name: string): Promise<Uint8Array> {
-  let file = files.get(name);
-  if (!file) {
-    file = fetch(URLS[name])
-      .then(response => {
-        if (!response.ok) throw new Error(`${name}.mp3: HTTP ${response.status}`);
-        return response.arrayBuffer();
-      })
-      .then(buffer => new Uint8Array(buffer));
-    file.catch(() => files.delete(name));
-    files.set(name, file);
+const ready = new Map<string, Uint8Array>();
+let audioCache: Promise<Cache | null> | null = null;
+
+async function loadSound(name: string): Promise<void> {
+  audioCache ??= caches.open(audioCacheName(new URL(BASE, location.href).pathname)).catch(() => null);
+  const cache = await audioCache;
+  let response = await cache?.match(URLS[name]);
+  if (!response) {
+    response = await fetch(URLS[name]);
+    if (!response.ok) throw new Error(`${name}.mp3: HTTP ${response.status}`);
+    await cache?.put(URLS[name], response.clone()).catch(() => {});
   }
-  return file;
+  ready.set(name, new Uint8Array(await response.arrayBuffer()));
+  showReady();
+}
+
+function loadAll(): void {
+  for (const name of ['bed', prefs.bowl, ...BOWLS]) {
+    if (ready.has(name) || loading.has(name)) continue;
+    loading.add(name);
+    loadSound(name)
+      .catch(() => setTimeout(loadAll, 10_000)) // offline on a first visit: try again
+      .finally(() => loading.delete(name));
+  }
+}
+const loading = new Set<string>();
+
+/** What a tap on a button that isn't ready yet is waiting for, to clear the note once it is. */
+let waitingFor: string[] = [];
+function needs(names: string[]): boolean {
+  if (names.every(name => ready.has(name))) return true;
+  waitingFor = names;
+  message.textContent = 'Loading sounds…';
+  message.dataset.kind = 'note';
+  return false;
+}
+function showReady(): void {
+  startButton.ariaDisabled = String(!(ready.has('bed') && ready.has(prefs.bowl)));
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-bowl]')) b.ariaDisabled = String(!ready.has(b.dataset.bowl!));
+  if (waitingFor.length && waitingFor.every(name => ready.has(name))) {
+    waitingFor = [];
+    message.textContent = '';
+    delete message.dataset.kind;
+  }
 }
 
 /** One gong on its own: the preview when picking a bowl, and the gong after Cancel. */
 let single: { audio: HTMLAudioElement; url: string } | null = null;
-let singleToken = 0;
 function stopSingle(): void {
-  singleToken++; // a gong still loading must not start after this
   if (!single) return;
   single.audio.pause();
   URL.revokeObjectURL(single.url);
   single = null;
 }
-async function ringOnce(bowl: string): Promise<void> {
+function ringOnce(bowl: string): void {
   stopSingle();
-  const token = singleToken;
-  const bytes = await load(bowl).catch(() => null);
-  if (!bytes || token !== singleToken) return;
+  const bytes = ready.get(bowl);
+  if (!bytes) return;
   const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'audio/mpeg' }));
   const audio = new Audio(url);
   const mine = (single = { audio, url });
@@ -74,7 +106,7 @@ async function ringOnce(bowl: string): Promise<void> {
     stopSingle();
     reloadIfUpdated();
   });
-  await audio.play().catch(() => {});
+  void audio.play().catch(() => {});
 }
 
 // ---- session -------------------------------------------------------------------------------
@@ -89,23 +121,20 @@ interface Session {
 }
 let session: Session | null = null;
 
-let starting = false;
-async function start(): Promise<void> {
-  if (starting || (session && !session.finished)) return;
+/** Builds the track and calls play() synchronously within the tap (nothing to wait for: the sounds are in memory). */
+function start(): void {
+  if (session && !session.finished) return;
+  if (!needs(['bed', prefs.bowl])) return;
   if (session) dispose(session);
   stopSingle();
-  const settings = { ...prefs }; // the controls stay live while the files load
-  starting = true;
-  startButton.disabled = true;
+  const settings = { ...prefs };
   message.textContent = '';
-  let started: Session | null = null;
+  delete message.dataset.kind;
   try {
-    const [bed, gong] = await Promise.all([load('bed'), load(settings.bowl)]);
     const plan = planTrack(settings.warmup, settings.minutes * 60, gongs[settings.bowl]);
-    const url = URL.createObjectURL(buildTrack(plan, bed, gong));
+    const url = URL.createObjectURL(buildTrack(plan, ready.get('bed')!, ready.get(settings.bowl)!));
     const audio = new Audio(url);
-    started = session = { audio, url, plan, bowl: settings.bowl, finished: false };
-    const mine = started;
+    const mine: Session = (session = { audio, url, plan, bowl: settings.bowl, finished: false });
     for (const event of ['play', 'pause', 'timeupdate']) audio.addEventListener(event, () => session === mine && render());
     audio.addEventListener('ended', () => session === mine && end(mine));
     audio.addEventListener('error', () => {
@@ -113,17 +142,22 @@ async function start(): Promise<void> {
       end(mine);
       message.textContent = 'The session audio failed to play.';
     });
-    await audio.play();
-    showInMediaSession(plan, settings);
-    void keepAwake(true);
+    audio.play().then(
+      () => {
+        if (session !== mine) return;
+        showInMediaSession(plan, settings);
+        void keepAwake(true);
+      },
+      error => {
+        if (session !== mine) return;
+        end(mine);
+        message.textContent = `Couldn't start: ${error instanceof Error ? error.message : error}`;
+      },
+    );
   } catch (error) {
-    if (started && session === started) dispose(started);
     message.textContent = `Couldn't start: ${error instanceof Error ? error.message : error}`;
-  } finally {
-    starting = false;
-    startButton.disabled = false;
-    render();
   }
+  render();
 }
 
 /** Cancel during a session ends it with one gong; after the closing gong it just silences the ring-out. */
@@ -131,7 +165,7 @@ function cancel(): void {
   const s = session;
   if (!s) return;
   end(s);
-  if (!s.finished) void ringOnce(s.bowl);
+  if (!s.finished) ringOnce(s.bowl);
 }
 
 function end(s: Session): void {
@@ -273,6 +307,7 @@ function showPrefs(): void {
   for (const b of document.querySelectorAll<HTMLButtonElement>('[data-minutes]')) b.ariaPressed = String(Number(b.dataset.minutes) === prefs.minutes);
   for (const b of document.querySelectorAll<HTMLButtonElement>('[data-warmup]')) b.ariaPressed = String(Number(b.dataset.warmup) === prefs.warmup);
   for (const b of document.querySelectorAll<HTMLButtonElement>('[data-bowl]')) b.ariaPressed = String(b.dataset.bowl === prefs.bowl);
+  showReady();
 }
 function change(update: Partial<typeof prefs>): void {
   Object.assign(prefs, update);
@@ -288,20 +323,19 @@ document.querySelector('.setup')!.addEventListener('click', event => {
   if (step) change({ minutes: prefs.minutes + Number(step) });
   if (minutes) change({ minutes: Number(minutes) });
   if (warmup) change({ warmup: Number(warmup) });
-  if (bowl) {
+  if (bowl && needs([bowl])) {
     change({ bowl });
-    if (!starting) void ringOnce(bowl);
+    ringOnce(bowl);
   }
 });
-startButton.addEventListener('click', () => void start());
+startButton.addEventListener('click', start);
 el('cancel').addEventListener('click', cancel);
 el('resume').addEventListener('click', () => void session?.audio.play().catch(() => {}));
 
 el('build').textContent = `Build ${__BUILD__} UTC`;
 showPrefs();
 render();
-void load('bed');
-void load(prefs.bowl);
+loadAll();
 
 // ---- updates -------------------------------------------------------------------------------
 // A new service worker takes over at once (src/sw.ts). This page keeps running its own version
@@ -310,7 +344,7 @@ void load(prefs.bowl);
 
 let updated = false;
 function reloadIfUpdated(): void {
-  if (updated && !starting && !session && !single) location.reload();
+  if (updated && !session && !single) location.reload();
 }
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

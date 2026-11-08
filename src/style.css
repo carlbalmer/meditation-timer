@@ -68,3 +68,5 @@ button:disabled { opacity: 0.5; }
 .controls { display: flex; gap: 12px; margin-top: 40px; }
 .quiet { color: rgba(255, 255, 255, 0.5); border-color: rgba(255, 255, 255, 0.18); }
 body:not([data-ui='paused']) #resume { display: none; }
+button[aria-disabled='true'] { opacity: 0.35; }
+#message[data-kind='note'] { color: var(--dim); }
