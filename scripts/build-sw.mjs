@@ -3,21 +3,22 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 
-const entries = await readdir('dist', { recursive: true, withFileTypes: true });
+const OUT = process.env.OUT_DIR ?? 'dist';
+const entries = await readdir(OUT, { recursive: true, withFileTypes: true });
 const files = entries
   .filter(entry => entry.isFile())
-  .map(entry => `${entry.parentPath}/${entry.name}`.slice('dist/'.length))
+  .map(entry => `${entry.parentPath}/${entry.name}`.slice(OUT.length + 1))
   .filter(path => path !== 'sw.js' && !path.endsWith('.md'))
   .sort();
 
 const hash = createHash('sha256');
-for (const path of files) hash.update(path).update(await readFile(`dist/${path}`));
+for (const path of files) hash.update(path).update(await readFile(`${OUT}/${path}`));
 const version = hash.digest('hex').slice(0, 12);
 const urls = ['./', ...files.filter(path => path !== 'index.html')];
 
 await build({
   entryPoints: ['src/sw.ts'],
-  outfile: 'dist/sw.js',
+  outfile: `${OUT}/sw.js`,
   bundle: true,
   format: 'iife',
   target: 'es2022',

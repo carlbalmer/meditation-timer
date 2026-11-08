@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json && vite build && node scripts/build-sw.mjs",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test src/*.test.ts"
+    "test": "node --test src/*.test.ts",
+    "build:tailnet": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json && vite build --base /meditation-simple/ --outDir dist-tailnet && OUT_DIR=dist-tailnet node scripts/build-sw.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

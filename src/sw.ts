@@ -5,8 +5,18 @@ declare const self: ServiceWorkerGlobalScope;
 declare const __VERSION__: string;
 declare const __FILES__: string[];
 
-const CACHE = `meditation-${__VERSION__}`;
-const OLD = (key: string) => key !== CACHE && (key.startsWith('meditation-') || key.startsWith('shell-') || key === 'media');
+const SCOPE = self.registration.scope;
+const PREFIX = `meditation:${new URL(SCOPE).pathname}:`;
+const CACHE = PREFIX + __VERSION__;
+
+/** Earlier versions of this app in this scope (v1 `meditation-*`, v2 `shell-*` + `media`, older v3); other apps on the origin are left alone. */
+async function stale(key: string): Promise<boolean> {
+  if (key === CACHE) return false;
+  if (key.startsWith(PREFIX)) return true;
+  if (!/^(meditation-|shell-|media$)/.test(key)) return false;
+  const [first] = await (await caches.open(key)).keys();
+  return !first || first.url.startsWith(SCOPE);
+}
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(__FILES__)).then(() => self.skipWaiting()));
@@ -14,7 +24,10 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(OLD).map(key => caches.delete(key)))).then(() => self.clients.claim()),
+    (async () => {
+      for (const key of await caches.keys()) if (await stale(key)) await caches.delete(key);
+      await self.clients.claim();
+    })(),
   );
 });
 
