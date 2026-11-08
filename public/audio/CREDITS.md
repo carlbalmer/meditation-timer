@@ -1,6 +1,6 @@
 # Audio credits
 
-The bowls are played from `session/<file>.mp3` (shortened to at most 45 s, −6 dB, over an inaudible
+The bowls are played from `src/audio/<file>.mp3` (shortened to at most 45 s, −6 dB, over an inaudible
 low-frequency bed; see `tools/audio/README.md`). Rebuild with `tools/audio/build.sh`. Sounds from Freesound were taken as the public HQ preview
 (128 kbps MP3), since the original files need a Freesound login — a quality limit, not a licence one.
 

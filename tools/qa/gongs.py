@@ -2,7 +2,7 @@
 
 usage: python gongs.py REC.pcm GONG.mp3 ONSET_S [OFFSET_S] [EXPECTED_S,...]
   REC.pcm   16 kHz mono s16le from tools/mic-recorder
-  GONG.mp3  public/audio/session/<bowl>.mp3; ONSET_S its "onset" from src/sounds.json
+  GONG.mp3  src/audio/<bowl>.mp3; ONSET_S its "onset" from src/sounds.json
   OFFSET_S  subtracted from the printed times (the Start tap's position in the recording)
   EXPECTED  strike times to check (after the offset): for each, the rise of the partials' energy
             within ±1.5 s, measured against the 2 s before; robust when the room is noisy

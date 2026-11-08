@@ -1,12 +1,12 @@
 # Audio asset pipeline
 
-Builds the pieces the app stitches each session's audio track from: `public/audio/session/*.mp3`
+Builds the pieces the app stitches each session's audio track from: `src/audio/*.mp3`
 and their timing in `src/sounds.json`. Needs `ffmpeg`/`ffprobe` (with libmp3lame; `~/bin/ffmpeg`
 is used if none is on `PATH`), `curl`, `awk`, `python3`.
 
 ```bash
 tools/audio/fetch.sh    # download the CC0 Freesound previews to ~/assets-work/sounds/raw/freesound-<id>/ (RAW=… to change)
-tools/audio/build.sh    # build public/audio/session/ + src/sounds.json, then print the loudness table
+tools/audio/build.sh    # build src/audio/ + src/sounds.json, then print the loudness table
 ```
 
 | script | purpose |

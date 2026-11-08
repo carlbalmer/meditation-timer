@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the session audio (public/audio/session/*.mp3 + src/sounds.json) from resources/*.wav (+ CC0 Freesound previews).
+# Build the session audio (src/audio/*.mp3 + src/sounds.json) from resources/*.wav (+ CC0 Freesound previews).
 # Usage: tools/audio/build-bowls.sh            (env: RAW=~/assets-work/sounds/raw OUT=public/audio)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -71,7 +71,7 @@ done
 #    Everything carries the keep-alive bed: brown noise below 60 Hz at about -60 dBFS RMS, above
 #    Chromium's ~-72 dBFS audibility threshold so the browser keeps playing with the screen off
 #    (pure digital silence was paused about 140 s after the screen went off; docs/project_log).
-SESSION="$OUT/session"; mkdir -p "$SESSION"
+SESSION="$ROOT/src/audio"; mkdir -p "$SESSION"
 GONG_GAIN=${GONG_GAIN:--6}   # dB under the loudness-matched bowls
 MAX_GONG=${MAX_GONG:-45}     # s; a gong block must fit into the shortest meditation (1 min)
 TAIL_FADE=6                  # s; fade used when a bowl is cut to MAX_GONG

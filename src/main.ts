@@ -14,7 +14,14 @@ const NAMES: Record<string, string> = {
   soft: 'Soft',
 };
 const gongs: Record<string, { frames: number; onset: number }> = sounds.gongs;
-const BOWLS = Object.keys(NAMES).filter(id => id in gongs);
+// Fingerprinted URLs: a page only ever loads the audio files that match its own sounds.json.
+const URLS = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('./audio/*.mp3', { query: '?url', import: 'default', eager: true })).map(([path, url]) => [
+    path.slice('./audio/'.length, -'.mp3'.length),
+    url,
+  ]),
+);
+const BOWLS = Object.keys(NAMES).filter(id => id in gongs && id in URLS);
 const BASE = import.meta.env.BASE_URL;
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -32,7 +39,7 @@ const files = new Map<string, Promise<Uint8Array>>();
 function load(name: string): Promise<Uint8Array> {
   let file = files.get(name);
   if (!file) {
-    file = fetch(`${BASE}audio/session/${name}.mp3`)
+    file = fetch(URLS[name])
       .then(response => {
         if (!response.ok) throw new Error(`${name}.mp3: HTTP ${response.status}`);
         return response.arrayBuffer();
@@ -46,7 +53,9 @@ function load(name: string): Promise<Uint8Array> {
 
 /** One gong on its own: the preview when picking a bowl, and the gong after Cancel. */
 let single: { audio: HTMLAudioElement; url: string } | null = null;
+let singleToken = 0;
 function stopSingle(): void {
+  singleToken++; // a gong still loading must not start after this
   if (!single) return;
   single.audio.pause();
   URL.revokeObjectURL(single.url);
@@ -54,12 +63,17 @@ function stopSingle(): void {
 }
 async function ringOnce(bowl: string): Promise<void> {
   stopSingle();
-  const bytes = await load(bowl);
-  stopSingle();
+  const token = singleToken;
+  const bytes = await load(bowl).catch(() => null);
+  if (!bytes || token !== singleToken) return;
   const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'audio/mpeg' }));
   const audio = new Audio(url);
   const mine = (single = { audio, url });
-  audio.addEventListener('ended', () => single === mine && stopSingle());
+  audio.addEventListener('ended', () => {
+    if (single !== mine) return;
+    stopSingle();
+    reloadIfUpdated();
+  });
   await audio.play().catch(() => {});
 }
 
@@ -69,49 +83,61 @@ interface Session {
   audio: HTMLAudioElement;
   url: string;
   plan: Plan;
+  bowl: string;
   /** the closing gong has sounded; the track is only ringing out */
   finished: boolean;
 }
 let session: Session | null = null;
 
+let starting = false;
 async function start(): Promise<void> {
-  if (session && !session.finished) return;
+  if (starting || (session && !session.finished)) return;
   if (session) dispose(session);
   stopSingle();
+  const settings = { ...prefs }; // the controls stay live while the files load
+  starting = true;
   startButton.disabled = true;
   message.textContent = '';
   let started: Session | null = null;
   try {
-    const [bed, gong] = await Promise.all([load('bed'), load(prefs.bowl)]);
-    const plan = planTrack(prefs.warmup, prefs.minutes * 60, gongs[prefs.bowl]);
+    const [bed, gong] = await Promise.all([load('bed'), load(settings.bowl)]);
+    const plan = planTrack(settings.warmup, settings.minutes * 60, gongs[settings.bowl]);
     const url = URL.createObjectURL(buildTrack(plan, bed, gong));
     const audio = new Audio(url);
-    started = session = { audio, url, plan, finished: false };
+    started = session = { audio, url, plan, bowl: settings.bowl, finished: false };
     const mine = started;
     for (const event of ['play', 'pause', 'timeupdate']) audio.addEventListener(event, () => session === mine && render());
-    audio.addEventListener('ended', () => session === mine && dispose(mine));
+    audio.addEventListener('ended', () => session === mine && end(mine));
     audio.addEventListener('error', () => {
       if (session !== mine) return;
-      dispose(mine);
+      end(mine);
       message.textContent = 'The session audio failed to play.';
     });
     await audio.play();
-    showInMediaSession(plan);
+    showInMediaSession(plan, settings);
     void keepAwake(true);
   } catch (error) {
     if (started && session === started) dispose(started);
     message.textContent = `Couldn't start: ${error instanceof Error ? error.message : error}`;
   } finally {
+    starting = false;
     startButton.disabled = false;
     render();
   }
 }
 
+/** Cancel during a session ends it with one gong; after the closing gong it just silences the ring-out. */
 function cancel(): void {
-  if (!session || session.finished) return;
-  dispose(session);
-  void ringOnce(prefs.bowl);
+  const s = session;
+  if (!s) return;
+  end(s);
+  if (!s.finished) void ringOnce(s.bowl);
+}
+
+function end(s: Session): void {
+  dispose(s);
   render();
+  reloadIfUpdated();
 }
 
 function dispose(s: Session): void {
@@ -184,7 +210,7 @@ async function keepAwake(on: boolean): Promise<void> {
 // ---- media session (lock screen / notification) --------------------------------------------
 
 let lastPosition = { paused: true, at: -1 };
-function showInMediaSession(plan: Plan | null): void {
+function showInMediaSession(plan: Plan | null, settings?: typeof prefs): void {
   if (!('mediaSession' in navigator)) return;
   const media = navigator.mediaSession;
   if (!plan) {
@@ -195,7 +221,7 @@ function showInMediaSession(plan: Plan | null): void {
   lastPosition = { paused: true, at: -1 };
   media.metadata = new MediaMetadata({
     title: 'Meditation',
-    artist: `${prefs.minutes} min${prefs.warmup ? ` · warm-up ${prefs.warmup} s` : ''}`,
+    artist: `${settings!.minutes} min${settings!.warmup ? ` · warm-up ${settings!.warmup} s` : ''}`,
     artwork: [{ src: `${BASE}icon-512.png`, sizes: '512x512', type: 'image/png' }],
   });
 }
@@ -264,7 +290,7 @@ document.querySelector('.setup')!.addEventListener('click', event => {
   if (warmup) change({ warmup: Number(warmup) });
   if (bowl) {
     change({ bowl });
-    void ringOnce(bowl);
+    if (!starting) void ringOnce(bowl);
   }
 });
 startButton.addEventListener('click', () => void start());
@@ -276,6 +302,22 @@ render();
 void load('bed');
 void load(prefs.bowl);
 
+// ---- updates -------------------------------------------------------------------------------
+// A new service worker takes over at once (src/sw.ts). This page keeps running its own version
+// (its audio URLs are fingerprinted, so nothing mixes); it reloads into the new one once no
+// session audio is left, so a session, closing gong included, is never interrupted.
+
+let updated = false;
+function reloadIfUpdated(): void {
+  if (updated && !starting && !session && !single) location.reload();
+}
+
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return; // first install: this page is already the current version
+    updated = true;
+    reloadIfUpdated();
+  });
   void navigator.serviceWorker.register(`${BASE}sw.js`).catch(() => {});
 }

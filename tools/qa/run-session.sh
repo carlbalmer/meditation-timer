@@ -41,5 +41,5 @@ PY
 BOWL=${BOWL:-himalayan}; ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ONSET=$(python3 -I -c "import json,sys; print(json.load(open(sys.argv[1]))['gongs'][sys.argv[2]]['onset'])" "$ROOT/src/sounds.json" "$BOWL")
 echo "gong strikes heard by the phone mic, in seconds after the Start tap:"
-${PYTHON:-$HOME/opt/evalenv/bin/python} -I "$(dirname "$0")/gongs.py" $D/$N.pcm "$ROOT/public/audio/session/$BOWL.mp3" "$ONSET" "$(cat $D/$N.onsets.wall)" "${EXPECT:-}" | tee $D/$N.gongs
+${PYTHON:-$HOME/opt/evalenv/bin/python} -I "$(dirname "$0")/gongs.py" $D/$N.pcm "$ROOT/src/audio/$BOWL.mp3" "$ONSET" "$(cat $D/$N.onsets.wall)" "${EXPECT:-}" | tee $D/$N.gongs
 cat $D/$N.events
