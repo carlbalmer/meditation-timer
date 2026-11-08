@@ -35,7 +35,7 @@ npm run build    # typecheck, build to dist/, generate the service worker
 npm run preview  # serve dist/ (offline use, service worker)
 ```
 
-The tailnet copy (`https://fury.<tailnet>.ts.net:10443/meditation-timer/`, via `tailscale serve`
+The tailnet copy (`https://<host>.<tailnet>.ts.net:10443/meditation-timer/`, via `tailscale serve`
 → 127.0.0.1:4180) is the user service `meditation-preview`, a `vite preview` of this checkout's
 `dist/`: `npm run build` updates it, and an installed app picks the new version up the next time
 it is opened while idle.
