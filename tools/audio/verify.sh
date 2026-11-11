@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Print duration, size, integrated loudness, LRA, true peak and sample peak (decoded!) for every file under public/audio.
+# Print duration, size, integrated loudness, LRA, true peak and sample peak (decoded!) for every file under src/audio.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-OUT=${OUT:-$ROOT/public/audio}
 . "$HERE/lib.sh"
 printf '%-24s %9s %8s %8s %6s %8s %6s\n' file bytes dur_s LUFS_I LRA TP_dBTP "max_M"
 for f in "$ROOT"/src/audio/*.mp3; do

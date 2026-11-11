@@ -60,6 +60,7 @@ button:disabled { opacity: 0.5; }
 .credits { max-width: 360px; color: var(--dim); font-size: 0.8rem; }
 .credits summary { text-align: center; cursor: pointer; }
 .credits a { color: inherit; }
+.credits ul { margin: 0 0 1em; padding-left: 1.2em; }
 
 /* running: a dark screen, white text kept dim */
 .running { gap: 18px; }

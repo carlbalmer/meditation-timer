@@ -24,14 +24,6 @@
     "tingsha": {
       "frames": 612,
       "onset": 0.027
-    },
-    "warm": {
-      "frames": 1335,
-      "onset": 0.2891
-    },
-    "soft": {
-      "frames": 1251,
-      "onset": 0.027
     }
   }
 }

@@ -11,8 +11,6 @@ const NAMES: Record<string, string> = {
   bright: 'Bright',
   deep: 'Deep',
   tingsha: 'Tingsha',
-  warm: 'Warm',
-  soft: 'Soft',
 };
 const gongs: Record<string, { frames: number; onset: number }> = sounds.gongs;
 // Fingerprinted URLs: a page only ever loads the audio files that match its own sounds.json.

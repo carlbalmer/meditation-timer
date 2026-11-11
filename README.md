@@ -55,5 +55,5 @@ off with the battery reported unplugged and Doze forced, wakes the phone at the 
 
 ## Licences
 
-Five bowl recordings by Cpt_Asteroid are CC BY-NC 4.0 (non-commercial); the other two are CC0.
+The five bowl recordings are by Cpt_Asteroid, CC BY-NC 4.0 (non-commercial).
 Details in [public/audio/CREDITS.md](public/audio/CREDITS.md).
